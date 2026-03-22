@@ -66,12 +66,14 @@ The model is trained on **125 labeled examples** (25 per intent). Each predictio
 
 **Technology:** Python `re` (regex)
 
-Only activated when the intent is `NAVIGATE`. Uses regex patterns to pull out:
+Only activated when the intent is `NAVIGATE`. Uses regex patterns + number-word parsing to pull out:
 
 | Entity | Unit | Pattern examples |
 |--------|------|-----------------|
-| **Distance** | meters | `"3 meters"`, `"move forward 5"`, `"2.5m"` |
-| **Angle** | degrees | `"90 degrees"`, `"turn left 45"`, `"rotate 180°"` |
+| **Distance** | meters | `"3 meters"`, `"move forward five"`, `"2.5m"`, `"one and a half meters"` |
+| **Angle** | degrees | `"90 degrees"`, `"turn left forty five"`, `"rotate 180°"`, `"nineteen degrees"` |
+
+Supported spoken-number forms include values like `"nineteen"`, `"forty five"`, `"one thousand twenty"`, `"one and a half"`, and `"three and a quarter"`.
 
 **Critical rule:** If neither distance nor angle can be extracted, the intent is **downgraded to `UNKNOWN`**. This triggers the chatbot to ask *"Please provide distance and angle."*
 
@@ -106,8 +108,10 @@ Session state is kept in memory:
 
 When the system can't understand a command, this module takes over:
 
-1. **Primary:** Loads `microsoft/DialoGPT-small` (lazy-loaded on first use) and generates a conversational response.
+1. **Primary:** Loads `microsoft/DialoGPT-small` through the local `transformers` Python library (lazy-loaded on first use) and generates a conversational response.
 2. **Fallback:** If HuggingFace is unavailable (no internet/library), a rule-based responder handles greetings, help requests, and incomplete navigation commands.
+
+> `transformers` is a local runtime dependency in this project (imported in `chatbot/chatbot_handler.py`), not a direct Hugging Face Inference API call. You do **not** need a Hugging Face API key for the current implementation.
 
 A placeholder exists for future **Google AI API** integration when a free tier becomes available.
 
@@ -189,15 +193,21 @@ Response: Hello! I'm your study robot assistant. Try commands like 'start sessio
 pip install vosk sounddevice scikit-learn joblib numpy transformers
 ```
 
+Or install from the project file:
+
+```bash
+pip install -r requirements.txt
+```
+
 ### 2. Download the Vosk Model
 
 Download a model from [https://alphacephei.com/vosk/models](https://alphacephei.com/vosk/models) — for example:
 
 ```bash
 cd stt/
-wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-unzip vosk-model-small-en-us-0.15.zip
-mv vosk-model-small-en-us-0.15/* vosk_model/
+wget https://alphacephei.com/vosk/models/vosk-model-en-us-0.22.zip
+unzip vosk-model-en-us-0.22.zip
+mv vosk-model-en-us-0.22/* vosk_model/
 ```
 
 ### 3. Train the Intent Classifier
@@ -264,6 +274,8 @@ Then try these commands:
 ```
 You: start session
 You: move forward 3 meters and turn 90 degrees
+You: move forward one and a half meters and turn nineteen degrees
+You: turn one thousand twenty degrees
 You: how am I doing
 You: take a break
 You: hello there

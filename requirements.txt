@@ -1,0 +1,6 @@
+joblib
+numpy
+scikit-learn
+sounddevice
+transformers
+vosk
