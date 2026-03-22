@@ -24,4 +24,4 @@ Thumbs.db
 # Local ML artifacts
 intent/*.joblib
 stt/vosk_model/
-stt/vosk-model-*.zip
+stt/vosk-model-*.zip*
