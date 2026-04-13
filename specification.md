@@ -1,4 +1,4 @@
-This project is an offline-first voice-controlled robotic system that integrates speech recognition, intent classification, entity extraction, and task execution. It is designed to run primarily on a Raspberry Pi with optional ESP32 for low-level actuation. A chatbot fallback handles unrecognized commands using Hugging Face models, with future support for Google AI if free.
+This project is an offline-first voice-controlled robotic system that integrates speech recognition, intent classification, entity extraction, and task execution. It is designed to run primarily on Raspberry Pi 4/5 with optional ESP32 for low-level actuation. A chatbot fallback handles unrecognized commands using the Hugging Face cloud inference API.
 
 Features
 
@@ -48,9 +48,11 @@ Example: NAVIGATE → move robot; START_SESSION → begin study mode.
 
 Chatbot Fallback
 
-For UNKNOWN intent, passes text prompt to Hugging Face conversational model.
+For UNKNOWN intent, chatbot flow is:
 
-Optional future migration to Google AI API if free.
+1) Hugging Face cloud API call if HUGGINGFACE_API_KEY is configured.
+
+2) Rule-based response if API is unavailable.
 
 Enables conversational responses and guidance.
 
@@ -99,7 +101,7 @@ Modules & File Structure
 │   └─ dispatcher.py         # Maps intent+entity -> robot actions
 │
 ├─ /chatbot/
-│   └─ chatbot_handler.py    # Calls Hugging Face / optional Google AI for UNKNOWN
+│   └─ chatbot_handler.py    # Calls Hugging Face cloud API for UNKNOWN
 │
 ├─ main.py                   # Integrates STT -> Intent -> Entities -> Dispatcher
 └─ specification.md
@@ -175,11 +177,11 @@ Trigger: Intent = UNKNOWN
 
 Implementation:
 
-Hugging Face conversational model
+Hugging Face cloud chat-completions endpoint (if API key configured)
+
+Rule-based fallback responder
 
 Accepts user text → returns chatbot response
-
-Future option: Google AI API if free
 
 Purpose: Handles unrecognized commands and casual conversation
 
@@ -214,6 +216,8 @@ Python 3.11+
 
 Raspberry Pi OS
 
+Raspberry Pi 4/5 target devices
+
 Vosk 0.22 – offline speech recognition
 
 scikit-learn – intent classification
@@ -222,9 +226,17 @@ joblib – model persistence
 
 Regex – entity extraction
 
-Optional: Hugging Face / Google AI for chatbot fallback
+Hugging Face Inference API (API key) – cloud chatbot fallback
 
 Optional: ESP32 for low-level actuation
+
+Raspberry Pi Deployment Notes
+
+Pi 5 is recommended for best responsiveness.
+
+Pi 4 is supported and works well with cloud chatbot mode.
+
+Use Raspberry Pi OS 64-bit for better package compatibility and memory behavior.
 
 Performance / Optimization Notes
 

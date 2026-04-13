@@ -1,29 +1,112 @@
 """
 Chatbot fallback for UNKNOWN intents.
-Uses Hugging Face conversational model.
-Future option: Google AI API if free.
+Uses Hugging Face cloud inference via API key,
+then a lightweight rule-based responder.
 """
 
+import json
+import os
 from typing import Optional
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
-_pipeline = None
+def _get_cloud_config() -> Optional[dict]:
+    """Return Hugging Face cloud config if API key is set."""
+    api_key = os.getenv("HUGGINGFACE_API_KEY", "").strip() or os.getenv(
+        "CHATBOT_API_KEY", ""
+    ).strip()
+    if not api_key:
+        return None
+
+    timeout_raw = (
+        os.getenv("HUGGINGFACE_TIMEOUT_SECONDS", "").strip()
+        or os.getenv("CHATBOT_TIMEOUT_SECONDS", "20").strip()
+    )
+    try:
+        timeout_seconds = max(1, int(timeout_raw))
+    except ValueError:
+        timeout_seconds = 20
+
+    return {
+        "api_key": api_key,
+        "url": os.getenv(
+            "HUGGINGFACE_API_URL",
+            "https://router.huggingface.co/v1/chat/completions",
+        ).strip(),
+        "model": os.getenv(
+            "HUGGINGFACE_MODEL",
+            os.getenv("CHATBOT_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
+        ).strip(),
+        "timeout_seconds": timeout_seconds,
+    }
 
 
-def _load_pipeline():
-    """Lazy-load the Hugging Face conversational pipeline."""
-    global _pipeline
-    if _pipeline is None:
+def _cloud_response(user_text: str) -> Optional[str]:
+    """Call a Hugging Face cloud chat-completions endpoint."""
+    config = _get_cloud_config()
+    if config is None:
+        return None
+
+    payload = {
+        "model": config["model"],
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful robot assistant. Keep responses short, clear, "
+                    "and command-oriented when possible."
+                ),
+            },
+            {"role": "user", "content": user_text},
+        ],
+        "temperature": 0.5,
+        "max_tokens": 120,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {config['api_key']}",
+        "Content-Type": "application/json",
+    }
+
+    request = Request(
+        config["url"],
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=config["timeout_seconds"]) as response:
+            raw = response.read().decode("utf-8")
+        parsed = json.loads(raw)
+
+        choices = parsed.get("choices")
+        if isinstance(choices, list) and choices:
+            message = choices[0].get("message", {})
+            content = message.get("content", "")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+
+        # Compatibility with providers that return output_text.
+        output_text = parsed.get("output_text", "")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text.strip()
+
+        return None
+    except HTTPError as e:
+        details = ""
         try:
-            from transformers import pipeline
-
-            _pipeline = pipeline(
-                "text-generation",
-                model="microsoft/DialoGPT-small",
-                max_new_tokens=100,
-            )
-        except Exception as e:
-            print(f"[CHATBOT] Failed to load HuggingFace model: {e}")
-            _pipeline = "unavailable"
+            details = e.read().decode("utf-8", errors="ignore")
+        except Exception:
+            pass
+        print(f"[CHATBOT] Cloud HTTP error {e.code}: {details}")
+        return None
+    except URLError as e:
+        print(f"[CHATBOT] Cloud network error: {e}")
+        return None
+    except Exception as e:
+        print(f"[CHATBOT] Cloud response error: {e}")
+        return None
 
 
 def get_response(user_text: str) -> str:
@@ -40,23 +123,11 @@ def get_response(user_text: str) -> str:
     str
         Chatbot response or a helpful fallback message.
     """
-    _load_pipeline()
+    cloud = _cloud_response(user_text)
+    if cloud:
+        return cloud
 
-    if _pipeline == "unavailable" or _pipeline is None:
-        return _fallback_response(user_text)
-
-    try:
-        result = _pipeline(user_text)
-        if result and isinstance(result, list) and len(result) > 0:
-            generated = result[0].get("generated_text", "").strip()
-            # Remove the prompt from the output if echoed back
-            if generated.startswith(user_text):
-                generated = generated[len(user_text):].strip()
-            return generated if generated else _fallback_response(user_text)
-        return _fallback_response(user_text)
-    except Exception as e:
-        print(f"[CHATBOT] Error generating response: {e}")
-        return _fallback_response(user_text)
+    return _fallback_response(user_text)
 
 
 def _fallback_response(user_text: str) -> str:
@@ -72,15 +143,6 @@ def _fallback_response(user_text: str) -> str:
     if "move" in text_lower or "forward" in text_lower:
         return "Please provide distance and angle. Example: 'move forward 2 meters and turn 90 degrees'."
     return "I didn't understand that. Try commands like 'start session', 'take a break', or 'move forward 5 meters'."
-
-
-# Optional: Google AI integration placeholder
-def get_response_google_ai(user_text: str, api_key: Optional[str] = None) -> str:
-    """
-    Future Google AI integration.
-    Will be activated when a free API option becomes available.
-    """
-    raise NotImplementedError("Google AI integration is not yet available.")
 
 
 if __name__ == "__main__":

@@ -21,6 +21,10 @@ Thumbs.db
 *.log
 *.tmp
 
+# Local secrets
+.env
+.env.*
+
 # Local ML artifacts
 intent/*.joblib
 stt/vosk_model/

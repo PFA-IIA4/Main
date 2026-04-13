@@ -104,16 +104,14 @@ Session state is kept in memory:
 
 ### Stage 5 — Chatbot Fallback (`chatbot/chatbot_handler.py`)
 
-**Technology:** [Hugging Face Transformers](https://huggingface.co/docs/transformers/) (DialoGPT-small)
+**Technology:** Hugging Face cloud inference API + rule-based fallback
 
 When the system can't understand a command, this module takes over:
 
-1. **Primary:** Loads `microsoft/DialoGPT-small` through the local `transformers` Python library (lazy-loaded on first use) and generates a conversational response.
-2. **Fallback:** If HuggingFace is unavailable (no internet/library), a rule-based responder handles greetings, help requests, and incomplete navigation commands.
+1. **Primary:** Calls a Hugging Face cloud model with your API key.
+2. **Fallback:** If the API call fails or is not configured, a rule-based responder handles greetings, help requests, and incomplete navigation commands.
 
-> `transformers` is a local runtime dependency in this project (imported in `chatbot/chatbot_handler.py`), not a direct Hugging Face Inference API call. You do **not** need a Hugging Face API key for the current implementation.
-
-A placeholder exists for future **Google AI API** integration when a free tier becomes available.
+> No local `transformers` model is loaded in the current implementation.
 
 ---
 
@@ -160,7 +158,7 @@ Response: Hello! I'm your study robot assistant. Try commands like 'start sessio
 │   └── dispatcher.py            # Intent → action mapping + session state
 │
 ├── chatbot/
-│   └── chatbot_handler.py       # HuggingFace chatbot + rule-based fallback
+│   └── chatbot_handler.py       # Hugging Face API chatbot + rule-based fallback
 │
 ├── main.py                      # Entry point — wires all stages together
 ├── specification.md             # Detailed technical specification
@@ -178,19 +176,28 @@ Response: Hello! I'm your study robot assistant. Try commands like 'start sessio
 | Intent classification | **scikit-learn** | TF-IDF vectorization + Logistic Regression |
 | Model persistence | **joblib** | Save/load trained ML models |
 | Entity extraction | **Python re** | Regex-based parameter parsing |
-| Chatbot | **Hugging Face Transformers** | Conversational fallback (DialoGPT-small) |
+| Chatbot | **Hugging Face Inference API** | Cloud chatbot fallback for UNKNOWN intents |
 | Numerical ops | **NumPy** | Probability array handling |
-| Target platform | **Raspberry Pi** | Primary deployment target |
+| Target platform | **Raspberry Pi 4/5** | Primary deployment target |
 | Actuation | **ESP32** *(optional)* | Low-level motor control |
 
 ---
 
 ## Getting Started
 
-### 1. Install Dependencies
+### 0. Raspberry Pi 4/5 System Packages
+
+Install audio and build prerequisites first:
 
 ```bash
-pip install vosk sounddevice scikit-learn joblib numpy transformers
+sudo apt update
+sudo apt install -y python3-pip python3-venv portaudio19-dev libatlas-base-dev
+```
+
+### 1. Install Python Dependencies
+
+```bash
+pip install vosk sounddevice scikit-learn joblib numpy
 ```
 
 Or install from the project file:
@@ -236,6 +243,41 @@ python main.py --text
 ```
 
 > If voice mode fails (missing model or no mic), the system automatically falls back to text mode.
+
+### 5. Configure Cloud Chatbot (API Key)
+
+Copy the template and set your key/model/provider:
+
+```bash
+cp .env.example .env
+```
+
+Example values:
+
+```bash
+HUGGINGFACE_API_KEY=your_hf_api_key_here
+HUGGINGFACE_API_URL=https://router.huggingface.co/v1/chat/completions
+HUGGINGFACE_MODEL=Qwen/Qwen2.5-7B-Instruct
+HUGGINGFACE_TIMEOUT_SECONDS=20
+```
+
+Load variables for your current shell session:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+You can switch models by changing `HUGGINGFACE_MODEL`.
+
+### Raspberry Pi Readiness Notes
+
+- **OS recommendation:** Use Raspberry Pi OS 64-bit for smoother package installs and better memory handling.
+- **Raspberry Pi 5 (recommended):** Should run voice + intent + entity + dispatcher reliably, and cloud chatbot mode works well.
+- **Raspberry Pi 4:** Works for this architecture and benefits from cloud chatbot mode.
+- **Memory guidance:** 4 GB is workable; 8 GB is more comfortable for multitasking.
+- **Offline behavior:** STT/intent/entity/dispatcher stay fully offline. Cloud chatbot mode requires internet only for UNKNOWN-intent responses.
 
 ---
 
