@@ -38,6 +38,7 @@ def dispatch(intent: str, entities: Optional[Dict] = None, text: str = "") -> st
         "GET_STATS": _handle_get_stats,
         "BREAK": _handle_break,
         "NAVIGATE": _handle_navigate,
+        "RAG_QUERY": _handle_rag_query,
         "UNKNOWN": _handle_unknown,
     }
 
@@ -97,6 +98,51 @@ def _handle_navigate(entities: Optional[Dict] = None, **kwargs) -> str:
         return "Navigation failed: missing distance and angle."
     # In production this would send commands to the ESP32
     return " | ".join(parts) + " [command sent to ESP32]"
+
+
+def handle_rag_query(text: str) -> str:
+    """Forward question text to the external RAG backend over HTTP."""
+    if not text.strip():
+        return "No RAG query provided."
+
+    try:
+        import requests
+    except ImportError:
+        return "Error contacting RAG system: requests package is not installed."
+
+    try:
+        response = requests.post(
+            "http://127.0.0.1:8000/ask",
+            json={"query": text},
+            timeout=10,
+        )
+
+        # The current backend may expect a query parameter instead of JSON.
+        if response.status_code == 422:
+            response = requests.post(
+                "http://127.0.0.1:8000/ask",
+                params={"query": text},
+                timeout=10,
+            )
+
+        response.raise_for_status()
+
+        data = response.json()
+        if isinstance(data, dict):
+            if data.get("answer"):
+                return str(data["answer"])
+            if data.get("error"):
+                return f"RAG system error: {data['error']}"
+
+        return "No answer returned from RAG system."
+    except requests.RequestException as e:
+        return f"Error contacting RAG system: {str(e)}"
+    except ValueError:
+        return "Error contacting RAG system: invalid JSON response."
+
+
+def _handle_rag_query(text: str = "", **kwargs) -> str:
+    return handle_rag_query(text)
 
 
 def _handle_unknown(text: str = "", **kwargs) -> str:

@@ -6,6 +6,147 @@ STT → Intent Classification → Entity Extraction → Action Dispatcher → Ch
 import sys
 
 
+_RAG_TRIGGER_PHRASES = [
+    "what is",
+    "explain",
+    "define",
+    "summarize",
+    "summary",
+    "what does",
+    "tell me about",
+    "give details",
+    "what is written",
+]
+
+_RAG_CONTEXT_HINTS = [
+    "course",
+    "chapter",
+    "lesson",
+    "document",
+    "pdf",
+    "file",
+    "files",
+    "notes",
+    "from my course",
+    "from my notes",
+    "uploaded",
+    "content",
+    "page",
+]
+
+_SESSION_COMMAND_PHRASES = [
+    "start session",
+    "begin session",
+    "start studying",
+    "begin studying",
+    "start study mode",
+    "start focus mode",
+    "stop session",
+    "end session",
+    "stop studying",
+    "end study mode",
+    "finish session",
+    "terminate session",
+    "stop the study timer",
+]
+
+_STATS_COMMAND_PHRASES = [
+    "get stats",
+    "show statistics",
+    "display stats",
+    "how am i doing",
+    "show my progress",
+    "what are my stats",
+    "session statistics",
+    "progress report",
+    "study report",
+    "performance stats",
+    "summary of sessions",
+    "give me a summary",
+]
+
+_BREAK_COMMAND_PHRASES = [
+    "take a break",
+    "i need a break",
+    "break time",
+    "pause session",
+    "pause the session",
+    "pause studying",
+    "break now",
+    "rest time",
+    "quick break",
+]
+
+_NAVIGATION_VERBS = [
+    "move",
+    "go",
+    "turn",
+    "rotate",
+    "drive",
+    "travel",
+    "advance",
+    "proceed",
+    "navigate",
+    "head",
+]
+
+_NAVIGATION_HINTS = [
+    "meter",
+    "meters",
+    "m ",
+    "degree",
+    "degrees",
+    "left",
+    "right",
+    "forward",
+    "ahead",
+    "straight",
+    "north",
+    "south",
+    "east",
+    "west",
+]
+
+
+def _contains_any(text: str, phrases) -> bool:
+    return any(phrase in text for phrase in phrases)
+
+
+def _looks_like_navigation_command(text: str) -> bool:
+    return _contains_any(text, _NAVIGATION_VERBS) and _contains_any(
+        text, _NAVIGATION_HINTS
+    )
+
+
+def _is_reserved_robot_command(text: str) -> bool:
+    """Return True for known non-RAG robot commands.
+
+    This guard protects existing session/stats/break/navigation behaviors
+    from being overridden by RAG pre-routing.
+    """
+    if _contains_any(text, _SESSION_COMMAND_PHRASES):
+        return True
+    if _contains_any(text, _STATS_COMMAND_PHRASES):
+        return True
+    if _contains_any(text, _BREAK_COMMAND_PHRASES):
+        return True
+    return _looks_like_navigation_command(text)
+
+
+def is_rag_query(text: str) -> bool:
+    """Rule-based detector for document QA requests (RAG intent)."""
+    text = text.lower().strip()
+    if not text:
+        return False
+
+    if _is_reserved_robot_command(text):
+        return False
+
+    has_rag_trigger = _contains_any(text, _RAG_TRIGGER_PHRASES)
+    has_context_hint = _contains_any(text, _RAG_CONTEXT_HINTS)
+    return has_rag_trigger or has_context_hint
+
+
 def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
     """
     Process recognized text through the full pipeline.
@@ -28,10 +169,14 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
     from action.dispatcher import dispatch
     from chatbot.chatbot_handler import get_response
 
-    # Classify intent
-    result = intent_classifier.predict(text)
-    intent = result["intent"]
-    confidence = result["confidence"]
+    # Rule-based pre-routing for document QA before classifier.
+    if is_rag_query(text):
+        intent = "RAG_QUERY"
+        confidence = 1.0
+    else:
+        result = intent_classifier.predict(text)
+        intent = result["intent"]
+        confidence = result["confidence"]
 
     entities = None
 

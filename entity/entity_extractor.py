@@ -67,7 +67,7 @@ WORD_NUMBER_PATTERN = (
 
 # Matches either numeric values (e.g. 19, 19.5) or spoken numbers,
 # including values like "one thousand twenty" and "one and a half".
-NUMBER_TOKEN_PATTERN = rf"(?:\\d+(?:\\.\\d+)?|{WORD_NUMBER_PATTERN}(?:[\\s-]+{WORD_NUMBER_PATTERN})*)"
+NUMBER_TOKEN_PATTERN = rf"(?:\d+(?:\.\d+)?|{WORD_NUMBER_PATTERN}(?:[\s-]+{WORD_NUMBER_PATTERN})*)"
 
 
 def extract_entities(text: str) -> Dict[str, Optional[float]]:
