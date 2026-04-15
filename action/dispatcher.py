@@ -3,6 +3,7 @@ Action dispatcher: maps intent + entities to robot actions.
 """
 
 import datetime
+import os
 from typing import Dict, Optional
 
 # Simple in-memory session state
@@ -12,6 +13,34 @@ _session = {
     "breaks": 0,
     "total_study_seconds": 0,
 }
+
+RAG_BASE_URL = os.getenv("RAG_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+RAG_ASK_PATH = os.getenv("RAG_ASK_PATH", "/ask")
+
+
+def _get_rag_timeout_seconds(default: float = 10.0) -> float:
+    raw_value = os.getenv("RAG_TIMEOUT_SECONDS", str(default)).strip()
+    try:
+        timeout = float(raw_value)
+        return timeout if timeout > 0 else default
+    except ValueError:
+        return default
+
+
+def _build_rag_ask_url() -> str:
+    ask_path = RAG_ASK_PATH if RAG_ASK_PATH.startswith("/") else f"/{RAG_ASK_PATH}"
+    return f"{RAG_BASE_URL}{ask_path}"
+
+
+def _extract_answer_from_rag_payload(data: object) -> Optional[str]:
+    if not isinstance(data, dict):
+        return None
+
+    for key in ("answer", "response", "result", "output", "text"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def dispatch(intent: str, entities: Optional[Dict] = None, text: str = "") -> str:
@@ -110,31 +139,46 @@ def handle_rag_query(text: str) -> str:
     except ImportError:
         return "Error contacting RAG system: requests package is not installed."
 
-    try:
-        response = requests.post(
-            "http://127.0.0.1:8000/ask",
-            json={"query": text},
-            timeout=10,
-        )
+    ask_url = _build_rag_ask_url()
+    timeout_seconds = _get_rag_timeout_seconds()
 
-        # The current backend may expect a query parameter instead of JSON.
-        if response.status_code == 422:
-            response = requests.post(
-                "http://127.0.0.1:8000/ask",
-                params={"query": text},
-                timeout=10,
-            )
-
+    def _parse_response(response):
         response.raise_for_status()
-
         data = response.json()
-        if isinstance(data, dict):
-            if data.get("answer"):
-                return str(data["answer"])
-            if data.get("error"):
-                return f"RAG system error: {data['error']}"
+
+        answer = _extract_answer_from_rag_payload(data)
+        if answer:
+            return answer
+
+        if isinstance(data, dict) and data.get("error"):
+            return f"RAG system error: {data['error']}"
 
         return "No answer returned from RAG system."
+
+    try:
+        response = requests.post(
+            ask_url,
+            json={"query": text},
+            timeout=timeout_seconds,
+        )
+
+        # Some backends accept only query params for /ask.
+        if response.status_code in (405, 422):
+            response = requests.post(
+                ask_url,
+                params={"query": text},
+                timeout=timeout_seconds,
+            )
+
+        # Some backends expose GET /ask?query=... only.
+        if response.status_code == 405:
+            response = requests.get(
+                ask_url,
+                params={"query": text},
+                timeout=timeout_seconds,
+            )
+
+        return _parse_response(response)
     except requests.RequestException as e:
         return f"Error contacting RAG system: {str(e)}"
     except ValueError:

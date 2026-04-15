@@ -10,11 +10,11 @@ import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 
-TARGET_SAMPLES_PER_INTENT = 90
+TARGET_SAMPLES_PER_INTENT = 120
 
 # ---------------------------------------------------------------------------
 # Base intent examples.
-# RAG_QUERY includes 90 explicit samples (80-120 requested).
+# RAG_QUERY includes 90 explicit samples and is augmented to 120.
 # ---------------------------------------------------------------------------
 INTENT_EXAMPLES = {
     "START_SESSION": [
@@ -267,7 +267,10 @@ INTENT_AUGMENTATION = {
         "prefixes": ["please", "can you", "robot", "quickly", "assistant"],
         "suffixes": ["now", "please", "for me"],
     },
-    "RAG_QUERY": {"prefixes": [], "suffixes": []},
+    "RAG_QUERY": {
+        "prefixes": ["please", "can you", "based on my notes"],
+        "suffixes": ["from my uploaded pdf", "using the document"],
+    },
 }
 
 INTENT_ORDER = [
