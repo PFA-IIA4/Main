@@ -1,4 +1,4 @@
-This project is an offline-first voice-controlled robotic system that integrates speech recognition, intent classification, entity extraction, and task execution. It is designed to run primarily on Raspberry Pi 4/5 with optional ESP32 for low-level actuation. A chatbot fallback handles unrecognized commands using the Hugging Face cloud inference API.
+This project is an offline-first voice-controlled robotic system that integrates speech recognition, intent classification, entity extraction, task execution, and optional document-question routing to an external RAG backend. It is designed to run primarily on Raspberry Pi 4/5 with optional ESP32 for low-level actuation. A chatbot fallback handles unrecognized commands using the Hugging Face cloud inference API.
 
 Features
 
@@ -26,9 +26,21 @@ BREAK
 
 NAVIGATE
 
+RAG_QUERY
+
 UNKNOWN
 
 Returns confidence scores.
+
+RAG Query Routing
+
+Rule-based pre-routing in main.py detects document-style questions before intent classification.
+
+Routes matching queries to an external HTTP backend configured via environment variables.
+
+RAG queries are only answered while a session is active; otherwise the dispatcher asks the user to start a session first.
+
+Keeps robot commands, session controls, and navigation on the local path.
 
 Entity Extraction
 
@@ -63,6 +75,8 @@ Logs recognized speech, intent, confidence, and extracted entities.
 Partial results displayed during live speech recognition.
 
 Architecture
+Document-style questions are intercepted in main.py before the classifier and can be routed to an external RAG backend; the diagram below shows the local core path.
+
 +----------------+
 |  Microphone    |
 +-------+--------+
@@ -92,28 +106,29 @@ Modules & File Structure
 ├─ /intent/
 │   ├─ train_intent.py       # Train classifier
 │   ├─ intent_classifier.py  # Predict intent + confidence
-│   └─ intent_model.joblib    # Saved ML model
+│   ├─ vectorizer.joblib      # Saved TF-IDF vectorizer
+│   └─ classifier.joblib     # Saved Logistic Regression model
 │
 ├─ /entity/
 │   └─ entity_extractor.py   # Regex-based entity extraction
 │
 ├─ /action/
-│   └─ dispatcher.py         # Maps intent+entity -> robot actions
+│   └─ dispatcher.py         # Maps intent+entity -> robot actions and forwards RAG queries
 │
 ├─ /chatbot/
 │   └─ chatbot_handler.py    # Calls Hugging Face cloud API for UNKNOWN
 │
-├─ main.py                   # Integrates STT -> Intent -> Entities -> Dispatcher
+├─ main.py                   # Integrates STT -> RAG pre-route -> Intent -> Entities -> Dispatcher
 └─ specification.md
 Training Dataset Requirements
 
-Minimum 20–30 examples per intent (expandable).
+Training uses 120 samples per intent after augmentation.
 
-Text samples should reflect natural voice commands.
+Base examples are deduplicated and expanded to a balanced dataset across START_SESSION, STOP_SESSION, GET_STATS, BREAK, NAVIGATE, and RAG_QUERY.
 
-Separate training set for each intent.
+Text samples should reflect natural voice commands and document-style questions for RAG_QUERY.
 
-Saved using joblib:
+Saved artifacts:
 
 vectorizer.joblib → TF-IDF vectorizer
 
@@ -138,6 +153,10 @@ Input: Text from STT
 Model: TF-IDF + Logistic Regression
 
 Output: { intent, confidence }
+
+Possible intents: START_SESSION, STOP_SESSION, GET_STATS, BREAK, NAVIGATE, RAG_QUERY, UNKNOWN
+
+main.py may short-circuit obvious document-style questions to RAG_QUERY before calling the classifier.
 
 Confidence threshold = 0.6 → otherwise fallback to UNKNOWN.
 
@@ -169,6 +188,10 @@ GET_STATS → display session statistics
 
 BREAK → trigger break sequence
 
+RAG_QUERY → forward the text to an external HTTP RAG backend and return its answer
+
+RAG_QUERY → only allowed during an active session; otherwise return the session-required message
+
 UNKNOWN → call chatbot fallback
 
 Chatbot Fallback
@@ -177,7 +200,7 @@ Trigger: Intent = UNKNOWN
 
 Implementation:
 
-Hugging Face cloud chat-completions endpoint (if API key configured)
+Hugging Face cloud chat-completions endpoint (if HUGGINGFACE_API_KEY or CHATBOT_API_KEY is configured)
 
 Rule-based fallback responder
 
@@ -192,6 +215,12 @@ Intent: NAVIGATE
 Confidence: 0.91
 Distance: 2.0
 Angle: 90.0
+
+User: "explain chapter 2 from my notes"
+You said: explain chapter 2 from my notes
+Intent: RAG_QUERY
+Confidence: 1.00
+Action: [answer from the external RAG service]
 
 User: "move forward"
 Intent: UNKNOWN
@@ -225,6 +254,8 @@ scikit-learn – intent classification
 joblib – model persistence
 
 Regex – entity extraction
+
+requests – HTTP forwarding to the external RAG backend
 
 Hugging Face Inference API (API key) – cloud chatbot fallback
 

@@ -1,14 +1,14 @@
 # 🤖 Offline Voice-Controlled Robotic System
 
-An offline-first voice-controlled robot that listens to spoken commands, understands what you want, and acts on it — all running on a Raspberry Pi.
+An offline-first voice-controlled robot that listens to spoken commands, understands what you want, and acts on it — all running on a Raspberry Pi. The core speech pipeline stays local, while document-style questions can be routed to an external RAG backend when configured.
 
-Say *"move forward 3 meters and turn 90 degrees"* and the robot moves. Say *"start session"* and it begins tracking your study time. Say something it doesn't understand, and a chatbot responds naturally.
+Say *"move forward 3 meters and turn 90 degrees"* and the robot moves. Say *"start session"* and it begins tracking your study time. Say *"what is PID"* and it forwards the question to the RAG service. Say something it doesn't understand, and a chatbot responds naturally.
 
 ---
 
 ## How It Works
 
-The system is a **5-stage pipeline** where each stage feeds the next:
+The system is a **core 5-stage pipeline** with an additional rule-based RAG pre-route for document-style questions before intent classification:
 
 ```
 🎤 Microphone
@@ -56,9 +56,10 @@ The transcribed text is vectorized using **TF-IDF** (turns words into numbers ba
 | `GET_STATS` | *"show statistics"*, *"how am I doing"*, *"progress report"* |
 | `BREAK` | *"take a break"*, *"pause"*, *"I need rest"* |
 | `NAVIGATE` | *"move forward 3 meters"*, *"turn left 90 degrees"* |
+| `RAG_QUERY` | *"what is PID"*, *"summarize chapter 2"*, *"explain this document"* |
 | `UNKNOWN` | Anything not recognized with ≥ 60% confidence |
 
-The model is trained on **125 labeled examples** (25 per intent). Each prediction returns a **confidence score** — if it's below **0.6**, the intent is forced to `UNKNOWN` regardless of the predicted class.
+The model is trained on **120 labeled examples per intent** (**720 total** across six intents). Obvious document-style questions may be labeled as `RAG_QUERY` by `main.py` before the classifier runs. Each prediction returns a **confidence score** — if it's below **0.6**, the intent is forced to `UNKNOWN` regardless of the predicted class.
 
 **How it connects to the next stage:** The `{ intent, confidence }` result is passed to the entity extractor (for `NAVIGATE`) or directly to the dispatcher (for all other intents).
 
@@ -92,6 +93,7 @@ Maps each intent to a concrete action:
 | `GET_STATS` | Returns total study time, break count, session status |
 | `BREAK` | Increments break counter (only during active session) |
 | `NAVIGATE` | Formats a movement command string (ESP32 placeholder) |
+| `RAG_QUERY` | Forwards the text to an external HTTP RAG backend during an active session; otherwise asks the user to start a session first |
 | `UNKNOWN` | Returns `"CHATBOT_FALLBACK"` sentinel → triggers Stage 5 |
 
 Session state is kept in memory:
@@ -99,6 +101,10 @@ Session state is kept in memory:
 ```python
 { "active": bool, "start_time": datetime, "breaks": int, "total_study_seconds": float }
 ```
+
+The RAG backend is not part of this repository; configure it with `RAG_BASE_URL`, `RAG_ASK_PATH`, and `RAG_TIMEOUT_SECONDS`.
+
+RAG queries are only answered while a session is active.
 
 **How it connects to the next stage:** For `UNKNOWN` intents, the dispatcher returns the sentinel `"CHATBOT_FALLBACK"`, which tells `main.py` to invoke the chatbot.
 
@@ -113,6 +119,8 @@ When the system can't understand a command, this module takes over:
 
 > No local `transformers` model is loaded in the current implementation.
 
+> The chatbot accepts both `HUGGINGFACE_*` and `CHATBOT_*` environment variable names.
+
 ---
 
 ## Console Output
@@ -126,6 +134,13 @@ Confidence: 0.91
 Distance: 2.0
 Angle: 90.0
 Action: Moving 2.0m forward | Turning 90.0° [command sent to ESP32]
+```
+
+```
+You said: explain chapter 2 from my notes
+Intent: RAG_QUERY
+Confidence: 1.00
+Action: [answer from the external RAG service]
 ```
 
 ```
@@ -155,15 +170,17 @@ Response: Hello! I'm your study robot assistant. Try commands like 'start sessio
 │   └── entity_extractor.py      # Regex-based distance/angle extraction
 │
 ├── action/
-│   └── dispatcher.py            # Intent → action mapping + session state
+│   └── dispatcher.py            # Intent → action mapping + session state + RAG forwarding
 │
 ├── chatbot/
 │   └── chatbot_handler.py       # Hugging Face API chatbot + rule-based fallback
 │
-├── main.py                      # Entry point — wires all stages together
+├── main.py                      # Entry point — wires all stages together and pre-routes document questions
 ├── specification.md             # Detailed technical specification
 └── README.md                    # This file
 ```
+
+The external RAG backend is separate from this repository and is reached over HTTP.
 
 ---
 
@@ -174,6 +191,7 @@ Response: Hello! I'm your study robot assistant. Try commands like 'start sessio
 | Speech-to-Text | **Vosk 0.22** | Offline speech recognition from microphone |
 | Audio capture | **sounddevice** | Streams mic audio to Vosk |
 | Intent classification | **scikit-learn** | TF-IDF vectorization + Logistic Regression |
+| External RAG backend | **requests** | HTTP forwarding for document-style questions |
 | Model persistence | **joblib** | Save/load trained ML models |
 | Entity extraction | **Python re** | Regex-based parameter parsing |
 | Chatbot | **Hugging Face Inference API** | Cloud chatbot fallback for UNKNOWN intents |
@@ -197,7 +215,7 @@ sudo apt install -y python3-pip python3-venv portaudio19-dev libatlas-base-dev
 ### 1. Install Python Dependencies
 
 ```bash
-pip install vosk sounddevice scikit-learn joblib numpy
+pip install vosk sounddevice scikit-learn joblib numpy requests
 ```
 
 Or install from the project file:
@@ -225,8 +243,9 @@ python intent/train_intent.py
 
 Output:
 ```
-[TRAIN] Trained on 125 samples.
-[TRAIN] Intents: ['BREAK', 'GET_STATS', 'NAVIGATE', 'START_SESSION', 'STOP_SESSION']
+[TRAIN] Trained on 720 samples.
+[TRAIN] Intents: ['BREAK', 'GET_STATS', 'NAVIGATE', 'RAG_QUERY', 'START_SESSION', 'STOP_SESSION']
+[TRAIN] Samples per intent: {'BREAK': 120, 'GET_STATS': 120, 'NAVIGATE': 120, 'RAG_QUERY': 120, 'START_SESSION': 120, 'STOP_SESSION': 120}
 [TRAIN] Models saved to intent/
 ```
 
@@ -244,30 +263,24 @@ python main.py --text
 
 > If voice mode fails (missing model or no mic), the system automatically falls back to text mode.
 
-### 5. Configure Cloud Chatbot (API Key)
+### 5. Configure Optional Cloud Integrations
 
-Copy the template and set your key/model/provider:
-
-```bash
-cp .env.example .env
-```
-
-Example values:
+Set the variables in your shell or in a local `.env` file before launching the app.
 
 ```bash
+# Chatbot fallback
 HUGGINGFACE_API_KEY=your_hf_api_key_here
 HUGGINGFACE_API_URL=https://router.huggingface.co/v1/chat/completions
 HUGGINGFACE_MODEL=Qwen/Qwen2.5-7B-Instruct
 HUGGINGFACE_TIMEOUT_SECONDS=20
+
+# External RAG backend
+RAG_BASE_URL=http://127.0.0.1:8000
+RAG_ASK_PATH=/ask
+RAG_TIMEOUT_SECONDS=10
 ```
 
-Load variables for your current shell session:
-
-```bash
-set -a
-source .env
-set +a
-```
+The chatbot also accepts `CHATBOT_API_KEY`, `CHATBOT_MODEL`, and `CHATBOT_TIMEOUT_SECONDS` as fallbacks.
 
 You can switch models by changing `HUGGINGFACE_MODEL`.
 
@@ -318,6 +331,7 @@ You: start session
 You: move forward 3 meters and turn 90 degrees
 You: move forward one and a half meters and turn nineteen degrees
 You: turn one thousand twenty degrees
+You: explain chapter 2 from my notes
 You: how am I doing
 You: take a break
 You: hello there
@@ -328,6 +342,8 @@ You: quit
 ---
 
 ## How the Stages Interact (Data Flow)
+
+Document-style questions are detected in `main.py` before intent classification and sent to the external RAG backend. Everything else follows the local intent → entity → dispatcher path shown below.
 
 ```
 User speaks: "move forward 3 meters and turn 90 degrees"

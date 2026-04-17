@@ -14,6 +14,12 @@ _session = {
     "total_study_seconds": 0,
 }
 
+SESSION_STARTED_MESSAGE = "Session started. Robot is currently in session. Say 'stop session' to end it."
+SESSION_ALREADY_ACTIVE_MESSAGE = "Robot is currently in session. Say 'stop session' to end it."
+RAG_SESSION_REQUIRED_MESSAGE = (
+    "Robot is currently not in session. Start a session first to ask RAG questions."
+)
+
 RAG_BASE_URL = os.getenv("RAG_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 RAG_ASK_PATH = os.getenv("RAG_ASK_PATH", "/ask")
 
@@ -77,11 +83,11 @@ def dispatch(intent: str, entities: Optional[Dict] = None, text: str = "") -> st
 
 def _handle_start_session(**kwargs) -> str:
     if _session["active"]:
-        return "Session is already active."
+        return SESSION_ALREADY_ACTIVE_MESSAGE
     _session["active"] = True
     _session["start_time"] = datetime.datetime.now()
     _session["breaks"] = 0
-    return "Session started. Good luck studying!"
+    return SESSION_STARTED_MESSAGE
 
 
 def _handle_stop_session(**kwargs) -> str:
@@ -131,6 +137,8 @@ def _handle_navigate(entities: Optional[Dict] = None, **kwargs) -> str:
 
 def handle_rag_query(text: str) -> str:
     """Forward question text to the external RAG backend over HTTP."""
+    if not _session["active"]:
+        return RAG_SESSION_REQUIRED_MESSAGE
     if not text.strip():
         return "No RAG query provided."
 
