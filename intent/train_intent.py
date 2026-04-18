@@ -1,413 +1,179 @@
 """
 Train a TF-IDF + Logistic Regression intent classifier.
-Saves vectorizer.joblib and classifier.joblib to the intent/ directory.
+The dataset is generated at training time using structured augmentation.
 """
 
-import os
+from __future__ import annotations
+
+import sys
 from collections import Counter
+from pathlib import Path
+from typing import Dict, List, Sequence, Tuple
 
 import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix
 
-TARGET_SAMPLES_PER_INTENT = 120
+if __package__ in (None, ""):
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-# ---------------------------------------------------------------------------
-# Base intent examples.
-# RAG_QUERY includes 90 explicit samples and is augmented to 120.
-# ---------------------------------------------------------------------------
-INTENT_EXAMPLES = {
-    "START_SESSION": [
-        "start session",
-        "begin session",
-        "start studying",
-        "begin study mode",
-        "start the session",
-        "let's start",
-        "start working",
-        "begin working",
-        "start a new session",
-        "initiate session",
-        "open session",
-        "launch session",
-        "kick off session",
-        "start study session",
-        "begin a study session",
-        "start my session",
-        "time to study",
-        "let's begin",
-        "start the study timer",
-        "activate session",
-        "commence session",
-        "start focus mode",
-        "begin focus session",
-        "turn on study mode",
-        "i want to start studying",
-    ],
-    "STOP_SESSION": [
-        "stop session",
-        "end session",
-        "stop studying",
-        "end study mode",
-        "finish session",
-        "terminate session",
-        "close session",
-        "stop the session",
-        "end the session",
-        "quit session",
-        "shut down session",
-        "i'm done studying",
-        "done for now",
-        "finish studying",
-        "stop working",
-        "end working",
-        "wrap up session",
-        "that's enough",
-        "stop the study timer",
-        "deactivate session",
-        "i want to stop",
-        "let's stop",
-        "time to stop",
-        "halt session",
-        "cancel session",
-    ],
-    "GET_STATS": [
-        "get stats",
-        "show statistics",
-        "display stats",
-        "how am i doing",
-        "show my progress",
-        "what are my stats",
-        "give me statistics",
-        "show session stats",
-        "how long have i studied",
-        "session statistics",
-        "progress report",
-        "show report",
-        "get my statistics",
-        "display statistics",
-        "what's my progress",
-        "tell me my stats",
-        "how much time",
-        "show time spent",
-        "study report",
-        "performance stats",
-        "check stats",
-        "view statistics",
-        "how many sessions",
-        "summary of sessions",
-        "give me a summary",
-    ],
-    "BREAK": [
-        "take a break",
-        "i need a break",
-        "break time",
-        "let's take a break",
-        "pause session",
-        "pause",
-        "rest",
-        "i need rest",
-        "time for a break",
-        "short break",
-        "break please",
-        "give me a break",
-        "pause the session",
-        "let me rest",
-        "take five",
-        "pause studying",
-        "hold on",
-        "rest time",
-        "stop for a break",
-        "quick break",
-        "i want a break",
-        "break now",
-        "chill for a bit",
-        "relax time",
-        "timeout",
-    ],
-    "NAVIGATE": [
-        "move forward 2 meters",
-        "go forward 5 meters",
-        "turn left 90 degrees",
-        "turn right 45 degrees",
-        "move forward 3 meters and turn 60 degrees",
-        "go ahead 1 meter",
-        "drive forward 10 meters",
-        "navigate forward 4 meters",
-        "move 2 meters ahead",
-        "go 7 meters forward",
-        "move forward 1.5 meters and turn left 30 degrees",
-        "turn 180 degrees",
-        "rotate 90 degrees right",
-        "go straight 6 meters",
-        "move ahead 8 meters",
-        "travel forward 3.5 meters",
-        "advance 2 meters",
-        "proceed 5 meters forward",
-        "move forward and turn 45 degrees",
-        "go 3 meters and rotate 120 degrees",
-        "drive 4 meters ahead",
-        "move to the left 2 meters",
-        "go right 3 meters",
-        "navigate 10 meters north",
-        "head forward 1 meter and turn right 90 degrees",
-    ],
-    "RAG_QUERY": [
-        "what is PID",
-        "define pid",
-        "explain pid controller",
-        "can you explain the concept of pid controller from my uploaded course notes",
-        "what is machine learning from my notes",
-        "summarize chapter 2",
-        "summarize chapter two from my course pdf",
-        "what does this document say",
-        "what is written in the pdf",
-        "give me a summary of this lesson",
-        "what did I upload",
-        "tell me about the content of my files",
-        "explain the topic from the document",
-        "summarize the uploaded pdf",
-        "what is explained in page 5",
-        "give details about this chapter",
-        "define convolution",
-        "explain convolution from my notes",
-        "what is backpropagation in my course material",
-        "summarize lesson 4",
-        "explain this chapter in simple words",
-        "what does page 10 talk about",
-        "can you summarize my document",
-        "summarize my document",
-        "explain from my course",
-        "tell me what this file is about",
-        "what are the key points in this pdf",
-        "extract the main idea from chapter 1",
-        "what is the definition of gradient descent in the notes",
-        "give me the explanation from the uploaded file",
-        "explain the content of page 3",
-        "what does the lesson say about neural networks",
-        "tell me about chapter 6 in the document",
-        "summarize the section about classification",
-        "what did the pdf mention about overfitting",
-        "explain regularization according to my notes",
-        "what is in the uploaded document",
-        "what does this course file explain",
-        "give me a quick summary of the document",
-        "provide a detailed summary of chapter 7",
-        "answer from my uploaded notes what is reinforcement learning",
-        "explain this topic based on my pdf",
-        "in my notes what is linear regression",
-        "what is described on page 2",
-        "tell me the important points from this lesson",
-        "summarize the notes i uploaded",
-        "can you read my file and explain the topic",
-        "explain the meaning of convolutional layer from my notes",
-        "what does chapter 3 cover",
-        "clarify what is written in my course document",
-        "define entropy from the document",
-        "explain accuracy versus precision from my notes",
-        "give me the summary for page 8",
-        "tell me what the uploaded pdf says about data preprocessing",
-        "from my files explain supervised learning",
-        "what is the topic of this chapter",
-        "explain this paragraph from the lesson",
-        "summarize the content i uploaded",
-        "what is discussed in lesson 2",
-        "give details from page 12",
-        "explain the formula in chapter 5 from my notes",
-        "what does my document say about logistic regression",
-        "summarize this chapter for me",
-        "define matrix multiplication from my pdf notes",
-        "tell me about the concept explained in the uploaded file",
-        "what does the course document mention about activation functions",
-        "explain the uploaded lesson in brief",
-        "give me a concise summary of my notes",
-        "i uploaded a pdf explain what it contains",
-        "what did my notes say about model evaluation",
-        "summarize the pdf chapter about optimization",
-        "explain the chapter on feature engineering",
-        "what is this lesson saying about bias and variance",
-        "can you answer using my uploaded document what is svm",
-        "tell me the content of page 15 in my file",
-        "explain from the document what clustering means",
-        "what is explained in my lecture notes about normalization",
-        "give me the main takeaway from this course file",
-        "what does the uploaded material say about cross validation",
-        "define overfitting from my uploaded notes",
-        "explain underfitting using my course document",
-        "summarize all key points from this lesson file",
-        "what are the definitions provided in chapter 9",
-        "tell me about the text in my pdf",
-        "explain from my notes what a confusion matrix is",
-        "what is written in my uploaded course notes about recall",
-        "summarize the topic discussed on page 20",
-        "give details about the uploaded chapter on probability",
-        "explain the content of my study document",
-        "what does this uploaded file say about machine learning basics",
-    ],
-}
+from intent.data_augmentation import (
+    DEFAULT_RANDOM_SEED,
+    INTENT_ORDER,
+    TARGET_SAMPLES_PER_INTENT,
+    generate_dataset,
+)
 
-INTENT_AUGMENTATION = {
-    "START_SESSION": {
-        "prefixes": ["please", "can you", "robot", "kindly", "assistant"],
-        "suffixes": ["now", "please", "for me"],
-    },
-    "STOP_SESSION": {
-        "prefixes": ["please", "can you", "robot", "kindly", "assistant"],
-        "suffixes": ["now", "please", "for me"],
-    },
-    "GET_STATS": {
-        "prefixes": ["please", "can you", "robot", "kindly", "assistant"],
-        "suffixes": ["for me", "please", "right now"],
-    },
-    "BREAK": {
-        "prefixes": ["please", "can you", "robot", "kindly", "assistant"],
-        "suffixes": ["now", "please", "for me"],
-    },
-    "NAVIGATE": {
-        "prefixes": ["please", "can you", "robot", "quickly", "assistant"],
-        "suffixes": ["now", "please", "for me"],
-    },
-    "RAG_QUERY": {
-        "prefixes": ["please", "can you", "based on my notes"],
-        "suffixes": ["from my uploaded pdf", "using the document"],
-    },
-}
+MODEL_DIR = Path(__file__).resolve().parent
+GENERATED_DATASET_PATH = MODEL_DIR / "generated_dataset.json"
+SAVE_GENERATED_DATASET = "--no-save-dataset" not in sys.argv
 
-INTENT_ORDER = [
-    "START_SESSION",
-    "STOP_SESSION",
-    "GET_STATS",
-    "BREAK",
-    "NAVIGATE",
-    "RAG_QUERY",
+AMBIGUOUS_PROBES: List[Tuple[str, str]] = [
+    ("go ahead a bit then turn right", "NAVIGATE"),
+    ("start studying now please", "START_SESSION"),
+    ("turn this into a summary", "RAG_QUERY (main pre-route), classifier may be UNKNOWN"),
+    ("move forward", "NAVIGATE (classifier), UNKNOWN after entity validation"),
+    ("explain pid controller", "RAG_QUERY (main pre-route), classifier may be low-confidence"),
 ]
 
-MODEL_DIR = os.path.dirname(__file__)
+
+def _print_confusion_matrix(labels: Sequence[str], matrix) -> None:
+    print("[EVAL] Confusion matrix (rows=true, cols=pred):")
+    header = "true\\pred".ljust(16) + " ".join(label.ljust(14) for label in labels)
+    print(header)
+    for label, row in zip(labels, matrix):
+        row_text = " ".join(str(value).ljust(14) for value in row)
+        print(label.ljust(16) + row_text)
 
 
-def _normalize_text(text: str) -> str:
-    return " ".join(text.lower().split())
+def _evaluate_classifier(eval_data: Sequence[Tuple[str, str]]) -> None:
+    from intent.intent_classifier import IntentClassifier
 
+    clf = IntentClassifier(model_dir=str(MODEL_DIR))
 
-def _deduplicate_keep_order(texts):
-    unique = []
-    seen = set()
-    for text in texts:
-        cleaned = " ".join(text.strip().split())
-        if not cleaned:
-            continue
-        key = _normalize_text(cleaned)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(cleaned)
-    return unique
+    true_labels: List[str] = []
+    predicted_labels: List[str] = []
+    correct_per_intent: Dict[str, int] = Counter()
+    total_per_intent: Dict[str, int] = Counter()
 
+    unknown_count = 0
+    unknown_margin_count = 0
+    unknown_confidence_count = 0
 
-def _augment_examples(intent: str, examples, target_count: int):
-    if len(examples) >= target_count:
-        return examples[:target_count]
+    navigate_predicted = 0
+    navigate_true_positive = 0
 
-    config = INTENT_AUGMENTATION.get(intent, {})
-    prefixes = config.get("prefixes", [])
-    suffixes = config.get("suffixes", [])
+    for text, true_intent in eval_data:
+        result = clf.predict(text)
+        predicted_intent = result["intent"]
+        unknown_reason = result.get("unknown_reason")
 
-    augmented = list(examples)
-    seen = {_normalize_text(text) for text in augmented}
+        true_labels.append(true_intent)
+        predicted_labels.append(predicted_intent)
 
-    def _add(candidate: str):
-        normalized = _normalize_text(candidate)
-        if normalized in seen:
-            return
-        seen.add(normalized)
-        augmented.append(candidate)
+        total_per_intent[true_intent] += 1
+        if predicted_intent == true_intent:
+            correct_per_intent[true_intent] += 1
 
-    for prefix in prefixes:
-        for text in examples:
-            _add(f"{prefix} {text}")
-            if len(augmented) >= target_count:
-                return augmented[:target_count]
+        if predicted_intent == "UNKNOWN":
+            unknown_count += 1
+            if unknown_reason == "margin":
+                unknown_margin_count += 1
+            elif unknown_reason == "confidence":
+                unknown_confidence_count += 1
 
-    for suffix in suffixes:
-        for text in examples:
-            _add(f"{text} {suffix}")
-            if len(augmented) >= target_count:
-                return augmented[:target_count]
+        if predicted_intent == "NAVIGATE":
+            navigate_predicted += 1
+            if true_intent == "NAVIGATE":
+                navigate_true_positive += 1
 
-    for prefix in prefixes:
-        for suffix in suffixes:
-            for text in examples:
-                _add(f"{prefix} {text} {suffix}")
-                if len(augmented) >= target_count:
-                    return augmented[:target_count]
-
-    raise ValueError(
-        f"Could not build {target_count} unique samples for intent '{intent}'. "
-        f"Generated only {len(augmented)} samples."
+    total_samples = max(len(eval_data), 1)
+    overall_accuracy = sum(
+        1 for true_intent, predicted_intent in zip(true_labels, predicted_labels) if true_intent == predicted_intent
+    ) / total_samples
+    unknown_rate = unknown_count / total_samples
+    false_unknown_rate = unknown_count / total_samples
+    margin_trigger_rate = unknown_margin_count / total_samples
+    navigate_precision = (
+        navigate_true_positive / navigate_predicted if navigate_predicted else 0.0
     )
 
+    print("[EVAL] Overall accuracy:", round(overall_accuracy, 4))
+    print("[EVAL] Unknown rate:", round(unknown_rate, 4))
+    print("[EVAL] False unknown rate:", round(false_unknown_rate, 4))
+    print("[EVAL] Margin-trigger UNKNOWN rate:", round(margin_trigger_rate, 4))
+    print("[EVAL] Confidence-trigger UNKNOWN count:", unknown_confidence_count)
+    print("[EVAL] NAVIGATE precision:", round(navigate_precision, 4))
 
-def _build_training_data():
-    rows = []
+    print("[EVAL] Per-intent accuracy:")
     for intent in INTENT_ORDER:
-        examples = _deduplicate_keep_order(INTENT_EXAMPLES[intent])
-        if intent == "RAG_QUERY" and len(examples) < 80:
-            raise ValueError("RAG_QUERY must include at least 80 unique examples.")
+        total = total_per_intent.get(intent, 0)
+        correct = correct_per_intent.get(intent, 0)
+        accuracy = (correct / total) if total else 0.0
+        print(f"  - {intent}: {accuracy:.4f} ({correct}/{total})")
 
-        examples = _augment_examples(intent, examples, TARGET_SAMPLES_PER_INTENT)
-        rows.extend((text, intent) for text in examples)
+    matrix_labels = list(INTENT_ORDER) + ["UNKNOWN"]
+    matrix = confusion_matrix(true_labels, predicted_labels, labels=matrix_labels)
+    _print_confusion_matrix(matrix_labels, matrix)
 
-    return rows
-
-
-def _validate_dataset(training_data):
-    seen = {}
-    for text, intent in training_data:
-        key = _normalize_text(text)
-        if key in seen:
-            previous_intent = seen[key]
-            raise ValueError(
-                f"Duplicate text sample found ('{text}') with intents "
-                f"'{previous_intent}' and '{intent}'."
-            )
-        seen[key] = intent
-
-    counts = Counter(label for _, label in training_data)
-    expected = set(INTENT_ORDER)
-    if set(counts.keys()) != expected:
-        raise ValueError("Dataset intents do not match expected intent set.")
-
-    min_count = min(counts.values())
-    max_count = max(counts.values())
-    if min_count != max_count:
-        raise ValueError(
-            f"Dataset is not balanced. Min samples={min_count}, max samples={max_count}."
+    print("[EVAL] Ambiguous phrase probes:")
+    for phrase, expected in AMBIGUOUS_PROBES:
+        prediction = clf.predict(phrase)
+        print(
+            f"  - '{phrase}' -> {prediction['intent']} "
+            f"(expected~{expected}, conf={prediction['confidence']}, margin={prediction['margin']}, reason={prediction['unknown_reason']})"
         )
 
 
-TRAINING_DATA = _build_training_data()
-_validate_dataset(TRAINING_DATA)
-
-
-def train_and_save():
+def train_and_save(
+    target_per_intent: int = TARGET_SAMPLES_PER_INTENT,
+    random_seed: int = DEFAULT_RANDOM_SEED,
+    save_dataset: bool = SAVE_GENERATED_DATASET,
+) -> None:
     """Train the classifier and save models to disk."""
-    texts = [text for text, _ in TRAINING_DATA]
-    labels = [label for _, label in TRAINING_DATA]
+    training_data = generate_dataset(
+        target_per_intent=target_per_intent,
+        random_seed=random_seed,
+        save_path=GENERATED_DATASET_PATH if save_dataset else None,
+    )
 
-    vectorizer = TfidfVectorizer()
+    texts = [text for text, _ in training_data]
+    labels = [label for _, label in training_data]
+
+    vectorizer = TfidfVectorizer(
+        ngram_range=(1, 2),
+        sublinear_tf=True,
+        lowercase=True,
+        strip_accents="unicode",
+    )
     X = vectorizer.fit_transform(texts)
 
-    classifier = LogisticRegression(max_iter=1000)
+    classifier = LogisticRegression(
+        max_iter=2000,
+        class_weight="balanced",
+        random_state=random_seed,
+    )
     classifier.fit(X, labels)
 
-    joblib.dump(vectorizer, os.path.join(MODEL_DIR, "vectorizer.joblib"))
-    joblib.dump(classifier, os.path.join(MODEL_DIR, "classifier.joblib"))
+    joblib.dump(vectorizer, MODEL_DIR / "vectorizer.joblib")
+    joblib.dump(classifier, MODEL_DIR / "classifier.joblib")
 
     label_counts = Counter(labels)
-    print(f"[TRAIN] Trained on {len(texts)} samples.")
+    print(f"[TRAIN] Generated dataset size: {len(texts)}")
     print(f"[TRAIN] Intents: {sorted(set(labels))}")
     print(f"[TRAIN] Samples per intent: {dict(sorted(label_counts.items()))}")
+    if save_dataset:
+        print(f"[TRAIN] Generated dataset saved to {GENERATED_DATASET_PATH}")
     print(f"[TRAIN] Models saved to {MODEL_DIR}/")
+
+    eval_target_per_intent = max(120, target_per_intent // 20)
+    evaluation_data = generate_dataset(
+        target_per_intent=eval_target_per_intent,
+        random_seed=random_seed + 999,
+        save_path=None,
+    )
+    _evaluate_classifier(evaluation_data)
 
 
 if __name__ == "__main__":

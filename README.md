@@ -57,11 +57,13 @@ The transcribed text is vectorized using **TF-IDF** (turns words into numbers ba
 | `BREAK` | *"take a break"*, *"pause"*, *"I need rest"* |
 | `NAVIGATE` | *"move forward 3 meters"*, *"turn left 90 degrees"* |
 | `RAG_QUERY` | *"what is PID"*, *"summarize chapter 2"*, *"explain this document"* |
-| `UNKNOWN` | Anything not recognized with ≥ 60% confidence |
+| `UNKNOWN` | Ambiguous or low-confidence predictions |
 
-The model is trained on **120 labeled examples per intent** (**720 total** across six intents). Obvious document-style questions may be labeled as `RAG_QUERY` by `main.py` before the classifier runs. Each prediction returns a **confidence score** — if it's below **0.6**, the intent is forced to `UNKNOWN` regardless of the predicted class.
+The model is trained on a generated dataset with **2000 samples per intent** (**12000 total** across six intents). Obvious document-style questions may be labeled as `RAG_QUERY` by `main.py` before the classifier runs. Each prediction returns a **confidence score** and a **margin**; by default, if the margin is below **0.12** or confidence drops below **0.58**, the intent is forced to `UNKNOWN`.
 
-**How it connects to the next stage:** The `{ intent, confidence }` result is passed to the entity extractor (for `NAVIGATE`) or directly to the dispatcher (for all other intents).
+The rule-boosting layer is additive (not hard override), with small context-aware boosts for likely NAVIGATE and RAG queries.
+
+**How it connects to the next stage:** The `{ intent, confidence, margin, unknown_reason }` result is passed to the entity extractor (for `NAVIGATE`) or directly to the dispatcher (for all other intents).
 
 ### Stage 3 — Entity Extraction (`entity/entity_extractor.py`)
 
@@ -161,8 +163,9 @@ Response: Hello! I'm your study robot assistant. Try commands like 'start sessio
 │   └── vosk_model/              # Place downloaded Vosk model here
 │
 ├── intent/
+│   ├── data_augmentation.py     # Structured dataset generator and noise/synonym utilities
 │   ├── train_intent.py          # Train the classifier (run once)
-│   ├── intent_classifier.py     # IntentClassifier — predict intent + confidence
+│   ├── intent_classifier.py     # IntentClassifier — predict intent + confidence + margin
 │   ├── vectorizer.joblib        # [generated] TF-IDF vectorizer
 │   └── classifier.joblib        # [generated] Logistic Regression model
 │
@@ -176,6 +179,7 @@ Response: Hello! I'm your study robot assistant. Try commands like 'start sessio
 │   └── chatbot_handler.py       # Hugging Face API chatbot + rule-based fallback
 │
 ├── main.py                      # Entry point — wires all stages together and pre-routes document questions
+├── test_augmentation.py         # Prints augmentation samples, sizes, and noise examples
 ├── specification.md             # Detailed technical specification
 └── README.md                    # This file
 ```
@@ -243,10 +247,15 @@ python intent/train_intent.py
 
 Output:
 ```
-[TRAIN] Trained on 720 samples.
+[TRAIN] Generated dataset size: 12000
 [TRAIN] Intents: ['BREAK', 'GET_STATS', 'NAVIGATE', 'RAG_QUERY', 'START_SESSION', 'STOP_SESSION']
-[TRAIN] Samples per intent: {'BREAK': 120, 'GET_STATS': 120, 'NAVIGATE': 120, 'RAG_QUERY': 120, 'START_SESSION': 120, 'STOP_SESSION': 120}
+[TRAIN] Samples per intent: {'BREAK': 2000, 'GET_STATS': 2000, 'NAVIGATE': 2000, 'RAG_QUERY': 2000, 'START_SESSION': 2000, 'STOP_SESSION': 2000}
+[TRAIN] Generated dataset saved to intent/generated_dataset.json
 [TRAIN] Models saved to intent/
+[EVAL] Overall accuracy: ...
+[EVAL] Unknown rate: ...
+[EVAL] NAVIGATE precision: ...
+[EVAL] Confusion matrix (rows=true, cols=pred):
 ```
 
 ### 4. Run the System
@@ -322,6 +331,9 @@ python intent/train_intent.py
 
 # 2. Launch in text mode
 python main.py --text
+
+# 3. Inspect augmentation output
+python test_augmentation.py
 ```
 
 Then try these commands:

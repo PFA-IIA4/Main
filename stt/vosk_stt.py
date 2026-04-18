@@ -12,9 +12,17 @@ import sounddevice as sd
 from vosk import Model, KaldiRecognizer
 
 SAMPLE_RATE = 16000
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "vosk_model")
+MODEL_PATH = os.getenv(
+    "VOSK_MODEL_PATH", os.path.join(os.path.dirname(__file__), "vosk_model")
+)
 
 audio_queue: queue.Queue = queue.Queue()
+
+
+def _is_valid_vosk_model_dir(model_path: str) -> bool:
+    """Return True when directory looks like a Vosk model root."""
+    required_subdirs = ("am", "conf", "graph")
+    return all(os.path.isdir(os.path.join(model_path, name)) for name in required_subdirs)
 
 
 def _audio_callback(indata, frames, time_info, status):
@@ -32,7 +40,25 @@ def create_recognizer(model_path: str = MODEL_PATH) -> KaldiRecognizer:
             "Download a model from https://alphacephei.com/vosk/models "
             "and extract it into the vosk_model/ directory."
         )
-    model = Model(model_path)
+
+    if not _is_valid_vosk_model_dir(model_path):
+        visible_entries = [entry for entry in os.listdir(model_path) if not entry.startswith(".")]
+        found = ", ".join(sorted(visible_entries)[:8]) if visible_entries else "(empty directory)"
+        raise FileNotFoundError(
+            f"Invalid Vosk model layout at '{model_path}'. "
+            "Expected subfolders: am/, conf/, graph/. "
+            f"Found: {found}. "
+            "If you extracted a zip, move the model contents (not just the parent folder) into this path."
+        )
+
+    try:
+        model = Model(model_path)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to load Vosk model from '{model_path}'. "
+            "The model may be incomplete/corrupted or built for a different Vosk version."
+        ) from exc
+
     return KaldiRecognizer(model, SAMPLE_RATE)
 
 

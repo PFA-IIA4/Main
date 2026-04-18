@@ -104,8 +104,9 @@ Modules & File Structure
 │   └─ vosk_model/           # Offline model files
 │
 ├─ /intent/
+│   ├─ data_augmentation.py  # Structured dataset generation and noise utilities
 │   ├─ train_intent.py       # Train classifier
-│   ├─ intent_classifier.py  # Predict intent + confidence
+│   ├─ intent_classifier.py  # Predict intent + confidence + margin
 │   ├─ vectorizer.joblib      # Saved TF-IDF vectorizer
 │   └─ classifier.joblib     # Saved Logistic Regression model
 │
@@ -119,10 +120,11 @@ Modules & File Structure
 │   └─ chatbot_handler.py    # Calls Hugging Face cloud API for UNKNOWN
 │
 ├─ main.py                   # Integrates STT -> RAG pre-route -> Intent -> Entities -> Dispatcher
+├─ test_augmentation.py      # Prints augmentation samples, sizes, and noise examples
 └─ specification.md
 Training Dataset Requirements
 
-Training uses 120 samples per intent after augmentation.
+Training uses 2000 samples per intent after augmentation.
 
 Base examples are deduplicated and expanded to a balanced dataset across START_SESSION, STOP_SESSION, GET_STATS, BREAK, NAVIGATE, and RAG_QUERY.
 
@@ -152,13 +154,23 @@ Input: Text from STT
 
 Model: TF-IDF + Logistic Regression
 
-Output: { intent, confidence }
+Output: { intent, confidence, margin, top3, unknown_reason, rule_boosts }
 
 Possible intents: START_SESSION, STOP_SESSION, GET_STATS, BREAK, NAVIGATE, RAG_QUERY, UNKNOWN
 
 main.py may short-circuit obvious document-style questions to RAG_QUERY before calling the classifier.
 
-Confidence threshold = 0.6 → otherwise fallback to UNKNOWN.
+Decision rules:
+
+margin < 0.12 → UNKNOWN
+
+confidence < 0.58 → otherwise fallback to UNKNOWN.
+
+Rule boosting notes:
+
+small additive probability boosts are applied for likely NAVIGATE and RAG_QUERY phrasing
+
+boosts do not override the ML classifier directly
 
 Entity Extraction Details
 

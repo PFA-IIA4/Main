@@ -173,10 +173,14 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
     if is_rag_query(text):
         intent = "RAG_QUERY"
         confidence = 1.0
+        margin = 1.0
+        unknown_reason = None
     else:
         result = intent_classifier.predict(text)
         intent = result["intent"]
         confidence = result["confidence"]
+        margin = result.get("margin")
+        unknown_reason = result.get("unknown_reason")
 
     entities = None
 
@@ -190,6 +194,10 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
         print(f"\nYou said: {text}")
         print(f"Intent: {intent}")
         print(f"Confidence: {confidence}")
+        if margin is not None:
+            print(f"Margin: {margin}")
+        if unknown_reason:
+            print(f"Unknown reason: {unknown_reason}")
         if entities and intent == "NAVIGATE":
             print(f"Distance: {entities.get('distance')}")
             print(f"Angle: {entities.get('angle')}")
