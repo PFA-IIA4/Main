@@ -71,6 +71,7 @@ def dispatch(intent: str, entities: Optional[Dict] = None, text: str = "") -> st
         "START_SESSION": _handle_start_session,
         "STOP_SESSION": _handle_stop_session,
         "GET_STATS": _handle_get_stats,
+        "SMALL_TALK": _handle_small_talk,
         "BREAK": _handle_break,
         "NAVIGATE": _handle_navigate,
         "RAG_QUERY": _handle_rag_query,
@@ -195,6 +196,11 @@ def handle_rag_query(text: str) -> str:
 
 def _handle_rag_query(text: str = "", **kwargs) -> str:
     return handle_rag_query(text)
+
+
+def _handle_small_talk(text: str = "", **kwargs) -> str:
+    # Route conversational phrases to chatbot, similar to UNKNOWN.
+    return "CHATBOT_FALLBACK"
 
 
 def _handle_unknown(text: str = "", **kwargs) -> str:

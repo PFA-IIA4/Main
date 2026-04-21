@@ -24,6 +24,7 @@ INTENT_ORDER = [
     "START_SESSION",
     "STOP_SESSION",
     "GET_STATS",
+    "SMALL_TALK",
     "BREAK",
     "NAVIGATE",
     "RAG_QUERY",
@@ -118,6 +119,7 @@ INTENT_SYNONYM_KEYS = {
     "START_SESSION": {"start", "begin"},
     "STOP_SESSION": {"stop", "end"},
     "GET_STATS": set(),
+    "SMALL_TALK": set(),
     "BREAK": set(),
     "NAVIGATE": {"move", "go", "forward", "ahead", "turn", "rotate"},
     "RAG_QUERY": set(),
@@ -201,6 +203,20 @@ TEMPLATES = {
         "{prefix} summary of sessions {suffix}",
         "{prefix} give me a summary of my sessions {suffix}",
         "{prefix} summarize my study progress {suffix}",
+    ],
+    "SMALL_TALK": [
+        "{prefix} hello {suffix}",
+        "{prefix} hi {suffix}",
+        "{prefix} hey {suffix}",
+        "{prefix} how are you {suffix}",
+        "{prefix} how are you doing {suffix}",
+        "{prefix} how is it going {suffix}",
+        "{prefix} whats up {suffix}",
+        "{prefix} good morning {suffix}",
+        "{prefix} good afternoon {suffix}",
+        "{prefix} good evening {suffix}",
+        "{prefix} who are you {suffix}",
+        "{prefix} nice to meet you {suffix}",
     ],
     "BREAK": [
         "{prefix} take a break {suffix}",
@@ -588,7 +604,7 @@ def inject_noise(
 
 
 def _iter_structured_samples(intent: str, templates: Sequence[str]) -> Iterable[str]:
-    if intent in {"START_SESSION", "STOP_SESSION", "GET_STATS", "BREAK"}:
+    if intent in {"START_SESSION", "STOP_SESSION", "GET_STATS", "SMALL_TALK", "BREAK"}:
         slot_names = ["prefix", "suffix"]
         slot_values = {
             "prefix": PREFIXES,

@@ -16,6 +16,8 @@ MODEL_DIR = os.path.dirname(__file__)
 CONFIDENCE_THRESHOLD = float(os.getenv("INTENT_CONFIDENCE_THRESHOLD", "0.58"))
 MARGIN_THRESHOLD = float(os.getenv("INTENT_MARGIN_THRESHOLD", "0.12"))
 NAVIGATE_BOOST = float(os.getenv("INTENT_NAVIGATE_BOOST", "0.06"))
+BREAK_BOOST = float(os.getenv("INTENT_BREAK_BOOST", "0.35"))
+FATIGUE_BREAK_BOOST = float(os.getenv("INTENT_FATIGUE_BREAK_BOOST", "0.8"))
 RAG_QUERY_BOOST = float(os.getenv("INTENT_RAG_BOOST", "0.06"))
 RAG_QUERY_STRONG_BOOST = float(os.getenv("INTENT_RAG_STRONG_BOOST", "0.45"))
 
@@ -83,6 +85,25 @@ RAG_CONTEXT_HINTS = (
     "file",
 )
 
+BREAK_COMMAND_HINTS = (
+    "take a break",
+    "need a break",
+    "break time",
+    "pause",
+    "rest",
+)
+
+FATIGUE_HINTS = (
+    "i am tired",
+    "i'm tired",
+    "im tired",
+    "tired",
+    "exhausted",
+    "sleepy",
+    "worn out",
+    "burned out",
+)
+
 
 class IntentClassifier:
     """Predict intent and confidence from text."""
@@ -144,16 +165,37 @@ class IntentClassifier:
     def _matches_strong_rag_rule(self, lowered: str) -> bool:
         return any(pattern in lowered for pattern in RAG_SUMMARY_PATTERNS)
 
+    def _matches_break_rule(self, lowered: str) -> bool:
+        has_break_command = any(term in lowered for term in BREAK_COMMAND_HINTS)
+        has_break_token = bool(re.search(r"\b(?:break|breaks|brake|brakes|rest|pause)\b", lowered))
+
+        return has_break_command or has_break_token
+
+    def _matches_fatigue_rule(self, lowered: str) -> bool:
+        return any(term in lowered for term in FATIGUE_HINTS)
+
     def _apply_rule_boosts(self, text: str, probabilities: np.ndarray) -> Tuple[np.ndarray, List[str]]:
         boosted = probabilities.astype(float).copy()
         lowered = text.lower()
         applied_rules: List[str] = []
 
+        fatigue_rule_matched = self._matches_fatigue_rule(lowered)
+        break_rule_matched = self._matches_break_rule(lowered)
+        if fatigue_rule_matched:
+            self._boost_probability(boosted, "BREAK", FATIGUE_BREAK_BOOST)
+            applied_rules.append("BREAK_FATIGUE")
+        elif break_rule_matched:
+            self._boost_probability(boosted, "BREAK", BREAK_BOOST)
+            applied_rules.append("BREAK")
+
         if self._matches_navigation_rule(lowered):
             self._boost_probability(boosted, "NAVIGATE", NAVIGATE_BOOST)
             applied_rules.append("NAVIGATE")
 
-        if self._matches_strong_rag_rule(lowered):
+        if fatigue_rule_matched or break_rule_matched:
+            # Break/fatigue commands should not be pulled into RAG by broad triggers.
+            pass
+        elif self._matches_strong_rag_rule(lowered):
             self._boost_probability(boosted, "RAG_QUERY", RAG_QUERY_STRONG_BOOST)
             applied_rules.append("RAG_QUERY_STRONG")
         elif self._matches_rag_rule(lowered):
@@ -199,8 +241,14 @@ class IntentClassifier:
         intent = top_intent
         unknown_reason = None
         if margin < self.margin_threshold:
-            unknown_reason = "margin"
-            intent = "UNKNOWN"
+            fatigue_break_applied = "BREAK_FATIGUE" in rule_boosts
+            if not (
+                top_intent == "BREAK"
+                and fatigue_break_applied
+                and top_confidence >= 0.4
+            ):
+                unknown_reason = "margin"
+                intent = "UNKNOWN"
         elif top_confidence < self.confidence_threshold:
             rag_rule_applied = (
                 "RAG_QUERY" in rule_boosts or "RAG_QUERY_STRONG" in rule_boosts

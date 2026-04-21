@@ -35,6 +35,7 @@ AMBIGUOUS_PROBES: List[Tuple[str, str]] = [
     ("turn this into a summary", "RAG_QUERY (main pre-route), classifier may be UNKNOWN"),
     ("move forward", "NAVIGATE (classifier), UNKNOWN after entity validation"),
     ("explain pid controller", "RAG_QUERY (main pre-route), classifier may be low-confidence"),
+    ("how are you doing", "SMALL_TALK"),
 ]
 
 

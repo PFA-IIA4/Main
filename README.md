@@ -192,7 +192,7 @@ The external RAG backend is separate from this repository and is reached over HT
 
 | Component | Technology | Role |
 |-----------|-----------|------|
-| Speech-to-Text | **Vosk 0.22** | Offline speech recognition from microphone |
+| Speech-to-Text | **Vosk small English model 0.15** | Offline speech recognition from microphone |
 | Audio capture | **sounddevice** | Streams mic audio to Vosk |
 | Intent classification | **scikit-learn** | TF-IDF vectorization + Logistic Regression |
 | External RAG backend | **requests** | HTTP forwarding for document-style questions |
@@ -234,10 +234,12 @@ Download a model from [https://alphacephei.com/vosk/models](https://alphacephei.
 
 ```bash
 cd stt/
-wget https://alphacephei.com/vosk/models/vosk-model-en-us-0.22.zip
-unzip vosk-model-en-us-0.22.zip
-mv vosk-model-en-us-0.22/* vosk_model/
+wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
+unzip vosk-model-small-en-us-0.15.zip
+mv vosk-model-small-en-us-0.15/* vosk_model/
 ```
+
+If you prefer the larger, more accurate model, use `vosk-model-en-us-0.22.zip` instead, but it is much heavier and less Raspberry Pi friendly.
 
 ### 3. Train the Intent Classifier
 

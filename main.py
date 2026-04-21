@@ -77,6 +77,27 @@ _BREAK_COMMAND_PHRASES = [
     "quick break",
 ]
 
+_BREAK_CONTEXT_HINTS = [
+    "break",
+    "brakes",
+    "rest",
+    "pause",
+]
+
+_FATIGUE_BREAK_PHRASES = [
+    "i am tired",
+    "i'm tired",
+    "im tired",
+    "tired",
+    "exhausted",
+    "sleepy",
+    "worn out",
+    "burned out",
+    "need rest",
+    "need a rest",
+    "need to rest",
+]
+
 _NAVIGATION_VERBS = [
     "move",
     "go",
@@ -118,6 +139,18 @@ def _looks_like_navigation_command(text: str) -> bool:
     )
 
 
+def _looks_like_break_command(text: str) -> bool:
+    if _contains_any(text, _BREAK_COMMAND_PHRASES):
+        return True
+    if _contains_any(text, _FATIGUE_BREAK_PHRASES):
+        return True
+    # Allow explanatory/document-style questions like
+    # "tell me about the importance of taking brakes" to route as RAG.
+    if _contains_any(text, _RAG_TRIGGER_PHRASES):
+        return False
+    return _contains_any(text, _BREAK_CONTEXT_HINTS)
+
+
 def _is_reserved_robot_command(text: str) -> bool:
     """Return True for known non-RAG robot commands.
 
@@ -128,7 +161,7 @@ def _is_reserved_robot_command(text: str) -> bool:
         return True
     if _contains_any(text, _STATS_COMMAND_PHRASES):
         return True
-    if _contains_any(text, _BREAK_COMMAND_PHRASES):
+    if _looks_like_break_command(text):
         return True
     return _looks_like_navigation_command(text)
 
