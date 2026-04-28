@@ -16,6 +16,8 @@ MODEL_DIR = os.path.dirname(__file__)
 CONFIDENCE_THRESHOLD = float(os.getenv("INTENT_CONFIDENCE_THRESHOLD", "0.58"))
 MARGIN_THRESHOLD = float(os.getenv("INTENT_MARGIN_THRESHOLD", "0.12"))
 NAVIGATE_BOOST = float(os.getenv("INTENT_NAVIGATE_BOOST", "0.06"))
+START_SESSION_BOOST = float(os.getenv("INTENT_START_SESSION_BOOST", "0.72"))
+STOP_SESSION_BOOST = float(os.getenv("INTENT_STOP_SESSION_BOOST", "0.5"))
 BREAK_BOOST = float(os.getenv("INTENT_BREAK_BOOST", "0.35"))
 FATIGUE_BREAK_BOOST = float(os.getenv("INTENT_FATIGUE_BREAK_BOOST", "0.8"))
 RAG_QUERY_BOOST = float(os.getenv("INTENT_RAG_BOOST", "0.06"))
@@ -56,6 +58,58 @@ SESSION_TERMS = (
     "focus mode",
     "study mode",
     "break",
+)
+
+START_SESSION_HINTS = (
+    "start session",
+    "begin session",
+    "start studying",
+    "begin studying",
+    "start study mode",
+    "begin study mode",
+    "start focus mode",
+    "activate session",
+    "initiate session",
+    "launch session",
+    "open session",
+    "turn on study mode",
+    "start the study timer",
+    "kick off the session",
+    "kick off session",
+    "kick off study session",
+    "i want to study",
+    "wanna study",
+    "lets study",
+    "let's study",
+)
+
+STOP_SESSION_HINTS = (
+    "stop session",
+    "end session",
+    "stop studying",
+    "end study mode",
+    "finish session",
+    "terminate session",
+    "close session",
+    "stop the study timer",
+    "finish studying",
+    "i am done studying",
+    "i'm done studying",
+    "im done studying",
+    "wrap up the session",
+    "shut down session",
+    "enough studying",
+    "that's enough studying",
+    "thats enough studying",
+    "done studying for now",
+    "no more studying",
+)
+
+SESSION_STATS_HINTS = (
+    "study report",
+    "progress report",
+    "statistics",
+    "stats",
 )
 
 RAG_TRIGGERS = (
@@ -154,6 +208,43 @@ class IntentClassifier:
 
         return (has_navigation_verb and has_navigation_hint) or has_numbered_units
 
+    def _matches_start_session_rule(self, lowered: str) -> bool:
+        if any(term in lowered for term in SESSION_STATS_HINTS):
+            return False
+
+        if any(term in lowered for term in START_SESSION_HINTS):
+            return True
+
+        return bool(
+            re.search(
+                r"\b(?:i\s+)?(?:want|wanna|need|ready|time)\s+(?:to\s+)?study(?:ing)?\b",
+                lowered,
+            )
+        ) or bool(
+            re.search(
+                r"\bkick\s+off\b(?:\s+the)?\s+(?:session|study\s+session|studying)\b",
+                lowered,
+            )
+        )
+
+    def _matches_stop_session_rule(self, lowered: str) -> bool:
+        if any(term in lowered for term in STOP_SESSION_HINTS):
+            return True
+
+        has_session_context = bool(
+            re.search(
+                r"\b(?:session|study|studying|study\s+mode|focus\s+mode|study\s+timer)\b",
+                lowered,
+            )
+        )
+        has_stop_cue = bool(
+            re.search(
+                r"\b(?:enough|done|finish(?:ed)?|stop|end|terminate|no\s+more)\b|wrap\s+up|shut\s+down",
+                lowered,
+            )
+        )
+        return has_session_context and has_stop_cue
+
     def _matches_rag_rule(self, lowered: str) -> bool:
         has_trigger = any(term in lowered for term in RAG_TRIGGERS)
         has_summary_pattern = any(pattern in lowered for pattern in RAG_SUMMARY_PATTERNS)
@@ -178,6 +269,14 @@ class IntentClassifier:
         boosted = probabilities.astype(float).copy()
         lowered = text.lower()
         applied_rules: List[str] = []
+
+        if self._matches_start_session_rule(lowered):
+            self._boost_probability(boosted, "START_SESSION", START_SESSION_BOOST)
+            applied_rules.append("START_SESSION")
+
+        if self._matches_stop_session_rule(lowered):
+            self._boost_probability(boosted, "STOP_SESSION", STOP_SESSION_BOOST)
+            applied_rules.append("STOP_SESSION")
 
         fatigue_rule_matched = self._matches_fatigue_rule(lowered)
         break_rule_matched = self._matches_break_rule(lowered)
@@ -240,12 +339,15 @@ class IntentClassifier:
 
         intent = top_intent
         unknown_reason = None
+        session_rule_applied = top_intent in {"START_SESSION", "STOP_SESSION"} and top_intent in rule_boosts
         if margin < self.margin_threshold:
             fatigue_break_applied = "BREAK_FATIGUE" in rule_boosts
             if not (
                 top_intent == "BREAK"
                 and fatigue_break_applied
                 and top_confidence >= 0.4
+            ) and not (
+                session_rule_applied and top_confidence >= 0.45
             ):
                 unknown_reason = "margin"
                 intent = "UNKNOWN"
@@ -254,10 +356,13 @@ class IntentClassifier:
                 "RAG_QUERY" in rule_boosts or "RAG_QUERY_STRONG" in rule_boosts
             )
             rag_relaxed_floor = max(0.35, self.confidence_threshold - 0.2)
+            session_relaxed_floor = max(0.45, self.confidence_threshold - 0.13)
             if not (
                 top_intent == "RAG_QUERY"
                 and rag_rule_applied
                 and top_confidence >= rag_relaxed_floor
+            ) and not (
+                session_rule_applied and top_confidence >= session_relaxed_floor
             ):
                 unknown_reason = "confidence"
                 intent = "UNKNOWN"

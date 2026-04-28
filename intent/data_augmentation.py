@@ -6,12 +6,15 @@ The module expands small seed templates into a larger balanced dataset using:
 - synonym substitution
 - NAVIGATE clause permutation
 - speech-like noise injection
+- optional LLM paraphrasing
 - deduplication and shuffling
 """
 
 from __future__ import annotations
 
 import json
+import importlib
+import os
 import random
 import re
 from collections import defaultdict
@@ -36,6 +39,13 @@ NOISE_PROBABILITY_RANGE = (0.1, 0.3)
 MAX_AUGMENTED_VARIANTS_PER_BASE = 96
 NEAR_DUPLICATE_TOKEN_THRESHOLD = 0.94
 NEAR_DUPLICATE_BIGRAM_THRESHOLD = 0.84
+USE_LLM_AUGMENTATION = True
+MAX_LLM_VARIANTS_PER_SAMPLE = 5
+
+LLM_API_KEY_ENV = "LLM_API_KEY"
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").strip() or None
+LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "20"))
 
 PREFIXES = [
     "",
@@ -174,6 +184,8 @@ TEMPLATES = {
         "{prefix} turn on study mode {suffix}",
         "{prefix} start the study timer {suffix}",
         "{prefix} kick off the session {suffix}",
+        "{prefix} kick off session {suffix}",
+        "{prefix} kick off study session {suffix}",
     ],
     "STOP_SESSION": [
         "{prefix} stop session {suffix}",
@@ -188,6 +200,10 @@ TEMPLATES = {
         "{prefix} i am done studying {suffix}",
         "{prefix} wrap up the session {suffix}",
         "{prefix} shut down session {suffix}",
+        "{prefix} pause session now {suffix}",
+        "{prefix} end session for a bit {suffix}",
+        "{prefix} stop for a break {suffix}",
+        "{prefix} take a break and stop {suffix}",
     ],
     "GET_STATS": [
         "{prefix} show statistics {suffix}",
@@ -231,6 +247,9 @@ TEMPLATES = {
         "{prefix} i want a break {suffix}",
         "{prefix} take five {suffix}",
         "{prefix} stop for a break {suffix}",
+        "{prefix} pause session now {suffix}",
+        "{prefix} end session for a bit {suffix}",
+        "{prefix} take a break and stop {suffix}",
     ],
     "NAVIGATE": [
         "{prefix} move forward {distance_phrase} and turn {angle_phrase} {suffix}",
@@ -261,6 +280,14 @@ TEMPLATES = {
         "{prefix} explain the document about {topic} {suffix}",
         "{prefix} summarize chapter {chapter_word} {suffix}",
         "{prefix} what does page {page_word} say {suffix}",
+        "{prefix} what does the pdf say about {topic} {suffix}",
+        "{prefix} in chapter {chapter_word} what is explained {suffix}",
+        "{prefix} can you explain that part about {topic} {suffix}",
+        "{prefix} what did the document mention about {topic} {suffix}",
+        "{prefix} summarize the part about {topic} {suffix}",
+        "{prefix} what is said in page {page_word} {suffix}",
+        "{prefix} explain that section {suffix}",
+        "{prefix} what does it say there {suffix}",
     ],
 }
 
@@ -296,7 +323,45 @@ RAG_TOPICS = [
     "the lesson",
     "chapter overview",
     "the file",
+    "that part",
+    "this section",
+    "that topic",
 ]
+
+INTENT_GUARD_PATTERNS = {
+    "START_SESSION": [
+        r"\b(?:start|begin|activate|launch|open|kick\s+off)\b",
+        r"\b(?:session|study|studying|focus|timer)\b",
+    ],
+    "STOP_SESSION": [
+        r"\b(?:stop|end|finish(?:ed)?|terminate|close|done|wrap\s+up|shut\s+down|no\s+more)\b",
+        r"\b(?:session|study|studying|focus|timer)\b",
+    ],
+    "GET_STATS": [
+        r"\b(?:stats|statistics|progress|report|summary|performance)\b",
+    ],
+    "SMALL_TALK": [
+        r"\b(?:hello|hi|hey|good\s+morning|good\s+afternoon|good\s+evening|how\s+are\s+you)\b",
+    ],
+    "BREAK": [
+        r"\b(?:break|pause|rest|take\s+five)\b",
+    ],
+    "NAVIGATE": [
+        r"\b(?:move|go|turn|rotate|drive|advance|proceed|navigate|head)\b",
+        r"\b(?:meter|meters|degree|degrees|left|right|forward|ahead|straight|north|south|east|west)\b",
+    ],
+    "RAG_QUERY": [
+        r"\b(?:what|explain|define|summarize|summary|tell\s+me|pdf|document|chapter|page|section|topic|there)\b",
+    ],
+}
+
+INTENT_FORBIDDEN_PATTERNS = {
+    "START_SESSION": [
+        r"\b(?:stop|end|finish|terminate|close|done|no\s+more)\b",
+    ],
+}
+
+_LLM_PARAPHRASE_CACHE: Dict[Tuple[str, str, int], List[str]] = {}
 
 
 @dataclass(frozen=True)
@@ -564,6 +629,189 @@ def _apply_number_confusion(sentence: str, rng: random.Random) -> str:
     return _normalize_text(" ".join(tokens))
 
 
+def _apply_typo_noise(sentence: str, rng: random.Random) -> str:
+    """Inject token-level typos such as deletion, swap, and duplication."""
+    tokens = sentence.split()
+    if not tokens:
+        return sentence
+
+    candidate_indices = [
+        index
+        for index, token in enumerate(tokens)
+        if len(re.sub(r"[^a-z]", "", token.lower())) >= 4
+    ]
+    if not candidate_indices:
+        return sentence
+
+    token_index = rng.choice(candidate_indices)
+    token = tokens[token_index]
+    match = re.search(r"[a-z]{4,}", token.lower())
+    if not match:
+        return sentence
+
+    word = match.group(0)
+    operation = rng.choice(["delete", "swap", "duplicate", "missing"])
+
+    if operation == "delete":
+        char_index = rng.randrange(len(word))
+        typo_word = word[:char_index] + word[char_index + 1 :]
+    elif operation == "swap" and len(word) > 2:
+        char_index = rng.randrange(len(word) - 1)
+        typo_word = (
+            word[:char_index]
+            + word[char_index + 1]
+            + word[char_index]
+            + word[char_index + 2 :]
+        )
+    elif operation == "duplicate":
+        char_index = rng.randrange(len(word))
+        typo_word = word[: char_index + 1] + word[char_index] + word[char_index + 1 :]
+    else:
+        vowel_indices = [
+            index for index, char in enumerate(word) if char in "aeiou" and 0 < index < len(word) - 1
+        ]
+        if vowel_indices:
+            char_index = rng.choice(vowel_indices)
+        else:
+            char_index = rng.randrange(1, len(word) - 1)
+        typo_word = word[:char_index] + word[char_index + 1 :]
+
+    if len(typo_word) < 2 or typo_word == word:
+        return sentence
+
+    typo_token = token.replace(word, typo_word, 1)
+    tokens[token_index] = typo_token
+    return _normalize_text(" ".join(tokens))
+
+
+def _is_llm_augmentation_enabled() -> bool:
+    if not USE_LLM_AUGMENTATION:
+        return False
+
+    override = os.getenv("USE_LLM_AUGMENTATION")
+    if override is None:
+        return True
+
+    return override.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _is_intent_consistent(intent: str, text: str) -> bool:
+    required_patterns = INTENT_GUARD_PATTERNS.get(intent, [])
+    forbidden_patterns = INTENT_FORBIDDEN_PATTERNS.get(intent, [])
+
+    if any(re.search(pattern, text) for pattern in forbidden_patterns):
+        return False
+
+    return all(re.search(pattern, text) for pattern in required_patterns)
+
+
+def _extract_paraphrase_candidates(raw_text: str) -> List[str]:
+    payload = raw_text.strip()
+    if not payload:
+        return []
+
+    try:
+        decoded = json.loads(payload)
+        if isinstance(decoded, dict):
+            candidates = decoded.get("paraphrases", [])
+        elif isinstance(decoded, list):
+            candidates = decoded
+        else:
+            candidates = []
+
+        return [str(candidate) for candidate in candidates if str(candidate).strip()]
+    except json.JSONDecodeError:
+        pass
+
+    lines: List[str] = []
+    for line in payload.splitlines():
+        cleaned = re.sub(r"^[\s\-\*\d\.)]+", "", line).strip()
+        if cleaned:
+            lines.append(cleaned)
+    return lines
+
+
+def generate_llm_paraphrases(sentence: str, intent: str, n: int) -> List[str]:
+    """Generate semantic paraphrases with an LLM while preserving intent."""
+    normalized = _normalize_text(sentence)
+    max_requested = min(max(n, 0), MAX_LLM_VARIANTS_PER_SAMPLE)
+    if max_requested == 0:
+        return []
+
+    if not _is_llm_augmentation_enabled():
+        return []
+
+    api_key = os.getenv(LLM_API_KEY_ENV, "").strip()
+    if not api_key:
+        return []
+
+    cache_key = (intent, normalized, max_requested)
+    if cache_key in _LLM_PARAPHRASE_CACHE:
+        return list(_LLM_PARAPHRASE_CACHE[cache_key])
+
+    try:
+        openai_module = importlib.import_module("openai")
+        OpenAI = getattr(openai_module, "OpenAI")
+    except Exception:
+        return []
+
+    client_kwargs = {"api_key": api_key}
+    if LLM_BASE_URL:
+        client_kwargs["base_url"] = LLM_BASE_URL
+
+    try:
+        client = OpenAI(**client_kwargs)
+        response = client.chat.completions.create(
+            model=LLM_MODEL,
+            temperature=0.9,
+            timeout=LLM_TIMEOUT_SECONDS,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You create short user-command paraphrases for intent classification datasets. "
+                        "Keep intent unchanged, avoid introducing other intents, and keep output concise."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Intent: "
+                        + intent
+                        + "\n"
+                        + "Original: "
+                        + normalized
+                        + "\n"
+                        + "Return exactly "
+                        + str(max_requested)
+                        + " paraphrases as a JSON list of strings."
+                    ),
+                },
+            ],
+        )
+        content = response.choices[0].message.content or ""
+    except Exception:
+        return []
+
+    parsed_candidates = _extract_paraphrase_candidates(content)
+    paraphrases: List[str] = []
+    seen = {normalized}
+
+    for candidate in parsed_candidates:
+        cleaned = _normalize_text(candidate)
+        if not cleaned or cleaned in seen:
+            continue
+        if not _is_intent_consistent(intent, cleaned):
+            continue
+        seen.add(cleaned)
+        paraphrases.append(cleaned)
+        if len(paraphrases) >= max_requested:
+            break
+
+    _LLM_PARAPHRASE_CACHE[cache_key] = list(paraphrases)
+    return paraphrases
+
+
 def inject_noise(
     sentence: str,
     rng: random.Random,
@@ -582,6 +830,7 @@ def inject_noise(
         lambda text: _drop_unit(text, rng),
         lambda text: _repeat_word(text, rng),
         lambda text: _apply_spelling_variation(text, rng),
+        lambda text: _apply_typo_noise(text, rng),
         lambda text: _apply_number_confusion(text, rng),
     ]
 
@@ -731,6 +980,17 @@ def _augment_sentence(intent: str, sentence: str, rng: random.Random) -> List[st
                 break
 
         frontier = next_frontier[:32]
+
+    remaining_budget = MAX_AUGMENTED_VARIANTS_PER_BASE - len(seen)
+    if remaining_budget > 0:
+        llm_budget = min(MAX_LLM_VARIANTS_PER_SAMPLE, remaining_budget)
+        for paraphrase in generate_llm_paraphrases(normalized, intent, llm_budget):
+            normalized_candidate = _normalize_text(paraphrase)
+            if not normalized_candidate or normalized_candidate in seen:
+                continue
+            seen.add(normalized_candidate)
+            if len(seen) >= MAX_AUGMENTED_VARIANTS_PER_BASE:
+                break
 
     return list(seen)
 

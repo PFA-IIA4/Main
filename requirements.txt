@@ -4,3 +4,6 @@ requests
 scikit-learn
 sounddevice
 vosk
+
+# Optional: dataset-generation paraphrasing only (not required at runtime)
+openai>=1.30.0
