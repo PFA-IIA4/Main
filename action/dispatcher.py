@@ -24,7 +24,7 @@ RAG_BASE_URL = os.getenv("RAG_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 RAG_ASK_PATH = os.getenv("RAG_ASK_PATH", "/ask")
 
 
-def _get_rag_timeout_seconds(default: float = 10.0) -> float:
+def _get_rag_timeout_seconds(default: float = 40.0) -> float:
     raw_value = os.getenv("RAG_TIMEOUT_SECONDS", str(default)).strip()
     try:
         timeout = float(raw_value)

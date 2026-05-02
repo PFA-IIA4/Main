@@ -35,3 +35,6 @@ stt/vosk-model-*.zip*
 # Local llama.cpp build and model artifacts
 llama.cpp/build/
 llama.cpp/models/*.gguf
+
+
+tts/*mp3
