@@ -206,14 +206,12 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
     if is_rag_query(text):
         intent = "RAG_QUERY"
         confidence = 1.0
-        margin = 1.0
-        unknown_reason = None
+        reason = "RAG pre-route"
     else:
         result = intent_classifier.predict(text)
         intent = result["intent"]
         confidence = result["confidence"]
-        margin = result.get("margin")
-        unknown_reason = result.get("unknown_reason")
+        reason = result.get("reason")
 
     entities = None
 
@@ -224,16 +222,10 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
             intent = "UNKNOWN"
 
     if verbose:
-        print(f"\nYou said: {text}")
+        print(f"\nInput: {text}")
         print(f"Intent: {intent}")
-        print(f"Confidence: {confidence}")
-        if margin is not None:
-            print(f"Margin: {margin}")
-        if unknown_reason:
-            print(f"Unknown reason: {unknown_reason}")
-        if entities and intent == "NAVIGATE":
-            print(f"Distance: {entities.get('distance')}")
-            print(f"Angle: {entities.get('angle')}")
+        if reason:
+            print(f"Explanation: {reason}")
 
     # Dispatch action
     action_result = dispatch(intent, entities=entities, text=text)
@@ -242,12 +234,11 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
     if action_result == "CHATBOT_FALLBACK":
         chatbot_response = get_response(text)
         if verbose:
-            print(f"Action: Chatbot invoked")
-            print(f"Response: {chatbot_response}")
+            print(f"Output: {chatbot_response}")
         return chatbot_response
 
     if verbose:
-        print(f"Action: {action_result}")
+        print(f"Output: {action_result}")
 
     return action_result
 

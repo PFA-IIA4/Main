@@ -93,19 +93,11 @@ def _cloud_response(user_text: str) -> Optional[str]:
             return output_text.strip()
 
         return None
-    except HTTPError as e:
-        details = ""
-        try:
-            details = e.read().decode("utf-8", errors="ignore")
-        except Exception:
-            pass
-        print(f"[CHATBOT] Cloud HTTP error {e.code}: {details}")
+    except HTTPError:
         return None
-    except URLError as e:
-        print(f"[CHATBOT] Cloud network error: {e}")
+    except URLError:
         return None
-    except Exception as e:
-        print(f"[CHATBOT] Cloud response error: {e}")
+    except Exception:
         return None
 
 

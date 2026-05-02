@@ -1,7 +1,5 @@
-joblib
 numpy
 requests
-scikit-learn
 sounddevice
 vosk
 

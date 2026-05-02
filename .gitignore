@@ -31,3 +31,7 @@ intent/generated_dataset.json
 stt/vosk_model/
 stt/vosk-model-*/
 stt/vosk-model-*.zip*
+
+# Local llama.cpp build and model artifacts
+llama.cpp/build/
+llama.cpp/models/*.gguf

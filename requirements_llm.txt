@@ -1,0 +1,12 @@
+# LLM-only Production Requirements
+
+# Core robot system
+numpy
+requests
+sounddevice
+vosk
+
+# Optional chatbot API
+openai>=1.30.0
+
+# llama.cpp is built from source and kept under llama.cpp/
