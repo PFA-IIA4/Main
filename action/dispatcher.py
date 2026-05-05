@@ -9,13 +9,18 @@ from typing import Dict, Optional
 # Simple in-memory session state
 _session = {
     "active": False,
+    "on_break": False,
     "start_time": None,
     "breaks": 0,
     "total_study_seconds": 0,
+    "current_session_seconds": 0,
 }
 
-SESSION_STARTED_MESSAGE = "Session started. Robot is currently in session. Say 'stop session' to end it."
+SESSION_STARTED_MESSAGE = (
+    "Session started. Say 'break' to pause or 'stop session' to end it."
+)
 SESSION_ALREADY_ACTIVE_MESSAGE = "Robot is currently in session. Say 'stop session' to end it."
+SESSION_ON_BREAK_MESSAGE = "Session is currently on break. Say 'resume session' to continue."
 RAG_SESSION_REQUIRED_MESSAGE = (
     "Robot is currently not in session. Start a session first to ask RAG questions."
 )
@@ -70,6 +75,7 @@ def dispatch(intent: str, entities: Optional[Dict] = None, text: str = "") -> st
     handlers = {
         "START_SESSION": _handle_start_session,
         "STOP_SESSION": _handle_stop_session,
+        "RESUME_SESSION": _handle_resume_session,
         "GET_STATS": _handle_get_stats,
         "SMALL_TALK": _handle_small_talk,
         "BREAK": _handle_break,
@@ -84,21 +90,31 @@ def dispatch(intent: str, entities: Optional[Dict] = None, text: str = "") -> st
 
 def _handle_start_session(**kwargs) -> str:
     if _session["active"]:
+        if _session["on_break"]:
+            return SESSION_ON_BREAK_MESSAGE
         return SESSION_ALREADY_ACTIVE_MESSAGE
     _session["active"] = True
+    _session["on_break"] = False
     _session["start_time"] = datetime.datetime.now()
     _session["breaks"] = 0
+    _session["current_session_seconds"] = 0
     return SESSION_STARTED_MESSAGE
 
 
 def _handle_stop_session(**kwargs) -> str:
     if not _session["active"]:
         return "No active session to stop."
-    elapsed = (datetime.datetime.now() - _session["start_time"]).total_seconds()
-    _session["total_study_seconds"] += elapsed
+    elapsed = 0.0
+    if _session["start_time"]:
+        elapsed = (datetime.datetime.now() - _session["start_time"]).total_seconds()
+        _session["total_study_seconds"] += elapsed
+        _session["current_session_seconds"] += elapsed
+    session_duration = _session["current_session_seconds"]
     _session["active"] = False
+    _session["on_break"] = False
     _session["start_time"] = None
-    return f"Session ended. Duration: {elapsed:.0f}s."
+    _session["current_session_seconds"] = 0
+    return f"Session ended. Duration: {session_duration:.0f}s."
 
 
 def _handle_get_stats(**kwargs) -> str:
@@ -109,15 +125,34 @@ def _handle_get_stats(**kwargs) -> str:
     return (
         f"Total study time: {total:.0f}s | "
         f"Breaks taken: {_session['breaks']} | "
-        f"Session active: {_session['active']}"
+        f"Session active: {_session['active']} | "
+        f"On break: {_session['on_break']}"
     )
 
 
 def _handle_break(**kwargs) -> str:
     if not _session["active"]:
         return "No active session. Start a session first."
+    if _session["on_break"]:
+        return "Break already in progress. Say 'resume session' when you're ready."
+    if _session["start_time"]:
+        elapsed = (datetime.datetime.now() - _session["start_time"]).total_seconds()
+        _session["total_study_seconds"] += elapsed
+        _session["current_session_seconds"] += elapsed
+        _session["start_time"] = None
     _session["breaks"] += 1
-    return f"Break #{_session['breaks']}. Take your time!"
+    _session["on_break"] = True
+    return f"Break #{_session['breaks']}. Say 'resume session' when you're ready."
+
+
+def _handle_resume_session(**kwargs) -> str:
+    if not _session["active"]:
+        return "No active session to resume. Start a session first."
+    if not _session["on_break"]:
+        return "Session already active."
+    _session["on_break"] = False
+    _session["start_time"] = datetime.datetime.now()
+    return "Break ended. Back to work!"
 
 
 def _handle_navigate(entities: Optional[Dict] = None, **kwargs) -> str:

@@ -31,25 +31,28 @@ class IntentClassificationResult:
             "intent": self.intent,
             "confidence": self.confidence,
             "reason": self.reason,
+            "parameters": getattr(self, "parameters", {}),
+            "response": getattr(self, "response", ""),
             "model_used": self.model_used,
         }
 
 
 class IntentClassifier:
-    """LLM-only intent classifier."""
+    """LLM intent classifier."""
 
     def __init__(self):
         self.llm_classifier = get_classifier()
         logger.debug("LLM intent classifier initialized successfully")
 
     def predict(self, text: str) -> Dict[str, Any]:
-        """Predict intent using the local LLM and return a dictionary."""
+        """Predict intent using the HF LLM API and return a dictionary."""
         result = self.llm_classifier.classify(text)
         return {
             "intent": result.intent,
             "confidence": result.confidence,
             "reason": result.reason,
-            "tokens_generated": result.tokens_generated,
+            "parameters": result.parameters,
+            "response": result.response,
             "inference_time_ms": result.inference_time_ms,
             "model_used": result.model_used,
         }
