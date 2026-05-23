@@ -2,22 +2,18 @@ import edge_tts
 import asyncio
 import os 
 import pygame 
-from pyparsing import Optional
-import requests 
-
-
 
 Voice ="en-US-GuyNeural"
-
-    
 
 async def generate_speech(text, output_file):
     communicate = edge_tts.Communicate(text, Voice)
     await communicate.save(output_file)
 
-
 def speak(text):
-    output_file = "voice/tts/output.mp3"
+    if not text or not text.strip():
+        return
+
+    output_file = os.path.join(os.path.dirname(__file__), "output.mp3")
 
     asyncio.run(generate_speech(text, output_file))
     pygame.mixer.init()

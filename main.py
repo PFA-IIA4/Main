@@ -208,6 +208,7 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
         Action result message.
     """
     from action.dispatcher import dispatch
+    from tts.engine import speak
 
     # Rule-based pre-routing for document QA before classifier.
     if is_rag_query(text):
@@ -233,6 +234,7 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
     if intent == "CHATBOT":
         if verbose:
             print(f"Output: {chatbot_response}")
+        speak(chatbot_response)
         return chatbot_response
 
     # Dispatch action
@@ -241,11 +243,13 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
     if action_result == "CHATBOT_FALLBACK":
         if verbose:
             print(f"Output: {chatbot_response}")
+        speak(chatbot_response)
         return chatbot_response
 
     if verbose:
         print(f"Output: {action_result}")
 
+    speak(action_result)
     return action_result
 
 
