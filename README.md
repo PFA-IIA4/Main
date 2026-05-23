@@ -153,14 +153,36 @@ pytest test_llm_classifier.py -v
 1. Clone your respiratory containing this `main` branch to your Raspberry Pi.
 2. Ensure you have missing system packages for audio processing (`sudo apt-get install python3-pyaudio portaudio19-dev ffmpeg`).
 3. Install Python dependencies using `pip install -r requirements.txt`.
-4. Set up your environment variables permanently by adding this to your `~/.bashrc` (or `.zshrc`):
+4. Set up your environment variables permanently:
+
+   **For Linux / Raspberry Pi (Bash):**
    ```bash
+   cat << 'EOF' >> ~/.bashrc
    export HUGGINGFACE_API_KEY="your_huggingface_api_key_here"
    export HUGGINGFACE_API_URL="https://router.huggingface.co/v1/chat/completions"
    export HUGGINGFACE_MODEL="Qwen/Qwen2.5-7B-Instruct"
+   export HUGGINGFACE_TIMEOUT_SECONDS="90"
+   export RAG_BASE_URL="http://127.0.0.1:8000"
+   export RAG_ASK_PATH="/ask"
+   export RAG_TIMEOUT_SECONDS="10"
+   EOF
+   
+   source ~/.bashrc
    ```
-5. Apply the variables with `source ~/.bashrc`.
-6. Run the script: `python main.py` or create a systemd service to run it automatically on boot.
+
+   **For Windows (PowerShell):**
+   ```powershell
+   [Environment]::SetEnvironmentVariable("HUGGINGFACE_API_KEY", "your_huggingface_api_key_here", "User")
+   [Environment]::SetEnvironmentVariable("HUGGINGFACE_API_URL", "https://router.huggingface.co/v1/chat/completions", "User")
+   [Environment]::SetEnvironmentVariable("HUGGINGFACE_MODEL", "Qwen/Qwen2.5-7B-Instruct", "User")
+   [Environment]::SetEnvironmentVariable("HUGGINGFACE_TIMEOUT_SECONDS", "90", "User")
+   [Environment]::SetEnvironmentVariable("RAG_BASE_URL", "http://127.0.0.1:8000", "User")
+   [Environment]::SetEnvironmentVariable("RAG_ASK_PATH", "/ask", "User")
+   [Environment]::SetEnvironmentVariable("RAG_TIMEOUT_SECONDS", "10", "User")
+   ```
+   *(Note: Restart your PowerShell terminal to apply the Windows changes.)*
+
+5. Run the script: `python main.py` or create a systemd service to run it automatically on boot.
 
 ---
 
