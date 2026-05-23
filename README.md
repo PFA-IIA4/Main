@@ -150,9 +150,13 @@ pytest test_llm_classifier.py -v
 
 ### Deployment Steps on the Pi
 
-1. Clone your respiratory containing this `main` branch to your Raspberry Pi.
+1. Clone your repository containing this `main` branch to your Raspberry Pi.
 2. Ensure you have missing system packages for audio processing (`sudo apt-get install python3-pyaudio portaudio19-dev ffmpeg`).
-3. Install Python dependencies using `pip install -r requirements.txt`.
+3. Set your hardware audio card as the system default by copying the provided ALSA config into your home directory:
+   ```bash
+   cp mommy/.asoundrc ~/.asoundrc
+   ```
+4. Install Python dependencies using `pip install -r requirements.txt`.
 4. Set up your environment variables permanently:
 
    **For Linux / Raspberry Pi (Bash):**
