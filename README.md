@@ -143,20 +143,52 @@ pytest test_llm_classifier.py -v
 ## Raspberry Pi Notes & Integration Steps
 
 - **Supported Hardware:** Raspberry Pi 4/5 are supported targets.
-- **Audio Setup:** You need a working microphone and speaker connected to the Pi. Test them with `arecord` and `aplay` before running the system.
 - **Speech-to-Text:** Handles audio locally using Vosk.
 - **Intent Classification & Chatbot:** Offloads to Hugging Face via API to keep Pi CPU usage very low and ensure real-time responsiveness.
 - **Connection Loss:** If the network fails, the classifier safely returns `UNKNOWN` to avoid crashes.
 
+### Hardware Wiring (I2S Interface)
+
+To get audio working, wire the INMP441 microphone and MAX98357A amplifier directly to the Raspberry Pi's GPIO pins:
+
+**1. INMP441 Microphone (Input)**
+| INMP441 Pin | Raspberry Pi GPIO | Physical Pin |
+| ----------- | ----------------- | ------------ |
+| VDD | 3.3V | Pin 1 |
+| GND | GND | Pin 6 |
+| SCK | GPIO18 (PCM_CLK) | Pin 12 |
+| WS | GPIO19 (PCM_FS) | Pin 35 |
+| SD | GPIO20 (PCM_DIN) | Pin 38 |
+| L/R | GND | — |
+
+**2. MAX98357A Amplifier (Output)**
+| MAX98357A Pin | Raspberry Pi GPIO | Physical Pin |
+| ------------- | ----------------- | ------------ |
+| VIN | 5V | Pin 2 or 4 |
+| GND | GND | Pin 9 |
+| BCLK | GPIO18 (PCM_CLK) | Pin 12 |
+| LRC | GPIO19 (PCM_FS) | Pin 35 |
+| DIN | GPIO21 (PCM_DOUT) | Pin 40 |
+| SD | Leave unconnected | — |
+| GAIN | Leave unconnected | — |
+
+**Speaker** → Connect directly to the `SPK+` and `SPK-` terminals on the MAX98357A.
+
 ### Deployment Steps on the Pi
 
 1. Clone your repository containing this `main` branch to your Raspberry Pi.
-2. Ensure you have missing system packages for audio processing (`sudo apt-get install python3-pyaudio portaudio19-dev ffmpeg`).
-3. Set your hardware audio card as the system default by copying the provided ALSA config into your home directory:
+2. **Enable I2S in Boot Config:** Open `/boot/config.txt` (or `/boot/firmware/config.txt` for newer Raspberry Pi OS) and ensure the following lines are uncommented or added to enable the I2S audio drivers:
+   ```ini
+   dtparam=i2s=on
+   ```
+   *Note: Reboot your Pi after making this change!*
+3. Ensure you have missing system packages for audio processing (`sudo apt-get install python3-pyaudio portaudio19-dev ffmpeg`).
+4. Set your hardware audio card as the system default by copying the provided ALSA config into your home directory:
    ```bash
    cp .asoundrc_template ~/.asoundrc
    ```
-4. Install Python dependencies using `pip install -r requirements.txt`.
+   *Test that the hardware runs properly using `arecord -l` and `aplay -l`.*
+5. Install Python dependencies using `pip install -r requirements.txt`.
 4. Set up your environment variables permanently:
 
    **For Linux / Raspberry Pi (Bash):**
