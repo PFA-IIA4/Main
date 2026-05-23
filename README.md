@@ -60,6 +60,9 @@ The API is instructed to return strict JSON containing the `intent`, `parameters
 │   ├── vosk_stt.py
 │   └── vosk_model/
 │
+├── tts/
+│   └── engine.py
+│
 ├── intent/
 │   ├── llm_classifier.py
 │   └── intent_classifier.py
@@ -72,7 +75,6 @@ The API is instructed to return strict JSON containing the `intent`, `parameters
 │
 ├── main.py
 ├── requirements.txt
-├── spec_v2.md
 ├── spec_v3.md
 └── README.md
 ```
@@ -138,12 +140,27 @@ pytest test_llm_classifier.py -v
 
 ---
 
-## Raspberry Pi Notes
+## Raspberry Pi Notes & Integration Steps
 
-- Raspberry Pi 4/5 are supported targets.
-- Speech-to-Text handles audio locally using Vosk.
-- Intent classification offloads to Hugging Face, keeping Pi CPU usage very low.
-- If the network fails, the classifier safely returns `UNKNOWN` to avoid crashes.
+- **Supported Hardware:** Raspberry Pi 4/5 are supported targets.
+- **Audio Setup:** You need a working microphone and speaker connected to the Pi. Test them with `arecord` and `aplay` before running the system.
+- **Speech-to-Text:** Handles audio locally using Vosk.
+- **Intent Classification & Chatbot:** Offloads to Hugging Face via API to keep Pi CPU usage very low and ensure real-time responsiveness.
+- **Connection Loss:** If the network fails, the classifier safely returns `UNKNOWN` to avoid crashes.
+
+### Deployment Steps on the Pi
+
+1. Clone your respiratory containing this `main` branch to your Raspberry Pi.
+2. Ensure you have missing system packages for audio processing (`sudo apt-get install python3-pyaudio portaudio19-dev ffmpeg`).
+3. Install Python dependencies using `pip install -r requirements.txt`.
+4. Set up your environment variables permanently by adding this to your `~/.bashrc` (or `.zshrc`):
+   ```bash
+   export HUGGINGFACE_API_KEY="your_huggingface_api_key_here"
+   export HUGGINGFACE_API_URL="https://router.huggingface.co/v1/chat/completions"
+   export HUGGINGFACE_MODEL="Qwen/Qwen2.5-7B-Instruct"
+   ```
+5. Apply the variables with `source ~/.bashrc`.
+6. Run the script: `python main.py` or create a systemd service to run it automatically on boot.
 
 ---
 

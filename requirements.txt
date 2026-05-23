@@ -2,3 +2,5 @@ numpy
 requests
 sounddevice
 vosk
+edge-tts
+pygame
