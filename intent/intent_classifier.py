@@ -1,7 +1,7 @@
 """
 LLM-only Intent Classifier for Voice-Controlled Robot System.
 
-This module is a thin production wrapper around the local llama.cpp-based
+This module is a thin production wrapper around the Hugging Face API-based
 classifier and returns a stable dictionary interface for the rest of the app.
 """
 
