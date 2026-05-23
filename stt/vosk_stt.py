@@ -11,9 +11,14 @@ import sys
 import sounddevice as sd
 from vosk import Model, KaldiRecognizer
 
+# Choose which model to use here:
+# "vosk-model-small-en-us-0.15" (fast, less accurate)
+# "vosk-model-en-us-0.22" (slower, more accurate)
+SELECTED_MODEL = "vosk-model-small-en-us-0.15"
+
 SAMPLE_RATE = 16000
 MODEL_PATH = os.getenv(
-    "VOSK_MODEL_PATH", os.path.join(os.path.dirname(__file__), "vosk_model")
+    "VOSK_MODEL_PATH", os.path.join(os.path.dirname(__file__), SELECTED_MODEL)
 )
 
 audio_queue: queue.Queue = queue.Queue()

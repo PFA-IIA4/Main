@@ -41,6 +41,15 @@ _SESSION_COMMAND_PHRASES = [
     "begin studying",
     "start study mode",
     "start focus mode",
+    "resume session",
+    "continue session",
+    "resume studying",
+    "continue studying",
+    "resume focus mode",
+    "continue focus mode",
+    "back to work",
+    "end break",
+    "break over",
     "stop session",
     "end session",
     "stop studying",
@@ -198,41 +207,38 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
     str
         Action result message.
     """
-    from entity.entity_extractor import extract_entities, has_required_entities
     from action.dispatcher import dispatch
-    from chatbot.chatbot_handler import get_response
 
     # Rule-based pre-routing for document QA before classifier.
     if is_rag_query(text):
         intent = "RAG_QUERY"
         confidence = 1.0
         reason = "RAG pre-route"
+        entities = {}
+        chatbot_response = ""
     else:
         result = intent_classifier.predict(text)
         intent = result["intent"]
         confidence = result["confidence"]
-        reason = result.get("reason")
-
-    entities = None
-
-    # Extract entities for NAVIGATE intent
-    if intent == "NAVIGATE":
-        entities = extract_entities(text)
-        if not has_required_entities(entities):
-            intent = "UNKNOWN"
+        reason = result.get("reason", "")
+        entities = result.get("parameters", {})
+        chatbot_response = result.get("response", "")
 
     if verbose:
         print(f"\nInput: {text}")
         print(f"Intent: {intent}")
         if reason:
             print(f"Explanation: {reason}")
+            
+    if intent == "CHATBOT":
+        if verbose:
+            print(f"Output: {chatbot_response}")
+        return chatbot_response
 
     # Dispatch action
     action_result = dispatch(intent, entities=entities, text=text)
 
-    # Chatbot fallback for UNKNOWN
     if action_result == "CHATBOT_FALLBACK":
-        chatbot_response = get_response(text)
         if verbose:
             print(f"Output: {chatbot_response}")
         return chatbot_response
