@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pi Cam Live</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; background: #0b0f14; color: #e8edf3; }
+    .wrap { max-width: 960px; margin: 18px auto; padding: 0 14px; }
+    .card { background: #161b22; border-radius: 12px; padding: 12px; }
+    img { width: 100%; max-height: 78vh; object-fit: contain; border-radius: 10px; background: #000; display: block; }
+    .meta { margin-top: 8px; font-size: 14px; color: #9fb0c3; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>Raspberry Pi Camera Live Feed</h2>
+    <div class="card">
+      <img id="feed" alt="live camera frame" src="/frame.jpg" />
+      <div class="meta">Auto-refreshing JPEG feed</div>
+    </div>
+  </div>
+  <script>
+    const img = document.getElementById('feed');
+    function tick() { img.src = '/frame.jpg?t=' + Date.now(); }
+    setInterval(tick, 120);
+    tick();
+  </script>
+</body>
+</html>
