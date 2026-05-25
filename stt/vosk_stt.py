@@ -14,9 +14,8 @@ from vosk import Model, KaldiRecognizer
 import speech_recognition as sr
 
 # Choose which model to use here:
-# "vosk-model-small-en-us-0.15" (fast, less accurate)
-# "vosk-model-en-us-0.22" (slower, more accurate)
-SELECTED_MODEL = "vosk-model-small-en-us-0.15"
+# "vosk_model" is the extracted folder path for the model
+SELECTED_MODEL = "vosk_model"
 
 SAMPLE_RATE = 16000
 MODEL_PATH = os.getenv(
