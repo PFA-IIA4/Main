@@ -273,7 +273,8 @@ def run_with_stt():
     def on_result(text):
         sys.stdout.write("\r" + " " * 60 + "\r")  # clear partial line
         _result_text, result_intent = process_text(text, clf)
-        if result_intent == "CHATBOT":
+        # Skip wake word and actively listen if we are continuing a conversation
+        if result_intent in ("CHATBOT", "UNKNOWN"):
             return "SKIP_WAKE_WORD"
         return None  # keep listening for wake word
 
