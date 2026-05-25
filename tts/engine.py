@@ -16,6 +16,8 @@ def speak(text):
     output_file = os.path.join(os.path.dirname(__file__), "output.mp3")
 
     asyncio.run(generate_speech(text, output_file))
+    # Pre-init the mixer to use a larger buffer to prevent ALSA underruns
+    pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=4096)
     pygame.mixer.init()
     pygame.mixer.music.load(output_file)
     pygame.mixer.music.play()

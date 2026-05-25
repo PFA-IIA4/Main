@@ -315,7 +315,7 @@ if __name__ == "__main__":
     else:
         try:
             run_with_stt()
-        except (FileNotFoundError, ImportError) as e:
+        except Exception as e:
             print(f"[MAIN] STT unavailable: {e}")
             print("[MAIN] Falling back to text mode…")
             run_text_mode()

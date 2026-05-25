@@ -114,7 +114,7 @@ def _handle_stop_session(**kwargs) -> str:
     _session["on_break"] = False
     _session["start_time"] = None
     _session["current_session_seconds"] = 0
-    return f"Session ended. Duration: {session_duration:.0f}s."
+    return f"Session ended. Duration: {session_duration:.0f} seconds."
 
 
 def _handle_get_stats(**kwargs) -> str:
@@ -122,11 +122,15 @@ def _handle_get_stats(**kwargs) -> str:
     if _session["active"] and _session["start_time"]:
         current = (datetime.datetime.now() - _session["start_time"]).total_seconds()
     total = _session["total_study_seconds"] + current
+    
+    active_str = "Yes" if _session['active'] else "No"
+    break_str = "Yes" if _session['on_break'] else "No"
+    
     return (
-        f"Total study time: {total:.0f}s | "
-        f"Breaks taken: {_session['breaks']} | "
-        f"Session active: {_session['active']} | "
-        f"On break: {_session['on_break']}"
+        f"Total study time is {total:.0f} seconds. "
+        f"You have taken {_session['breaks']} breaks. "
+        f"Session active: {active_str}. "
+        f"Currently on break: {break_str}."
     )
 
 

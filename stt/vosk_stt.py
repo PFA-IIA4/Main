@@ -70,8 +70,11 @@ def create_recognizer(model_path: str = MODEL_PATH) -> KaldiRecognizer:
 
 
 def is_wake_word(text: str) -> bool:
-    """Flexible fuzzy matching for 'hey deskmate'."""
+    """Flexible fuzzy matching for 'hey deskmate' or simple greetings."""
     text = text.lower()
+    # Accept simple greetings like 'hello', 'hi', or 'hey' on their own
+    if re.search(r'^\s*(hello|hi|hey)\s*$', text):
+        return True
     # Check for presence of hey and something sounding like deskmate
     if re.search(r'\b(hey|hi|hello|ok|okay)\b.*\b(desk|disk|test|this|just|guess)\s*(mate|make|made|man|may|me)*\b', text) or \
        re.search(r'\b(hey|hi|hello|ok|okay)\b.*\b(deskmate|this mate|test mate|just made|just make)\b', text):
@@ -99,101 +102,102 @@ def listen(recognizer: KaldiRecognizer, on_partial=None, on_result=None):
     cooldown_until = 0
     skip_wake_word_next = False
 
-    print("[STT-Hybrid] Listening for wake word 'hey deskmate' using Vosk… (Ctrl+C to stop)")
-    with sd.RawInputStream(
-        samplerate=SAMPLE_RATE,
-        blocksize=8000,
-        dtype="int16",
-        channels=1,
-        callback=_audio_callback,
-    ):
-        while True:
-            if not skip_wake_word_next:
-                data = audio_queue.get()
-                
-                # Prevent robot's own TTS outputs from triggering the wake word
-                if time.time() < cooldown_until:
-                    continue
-
-                detected_wake_word = False
-
-                #accept waveform returns True when it has a final result (silence meaning user finished speaking), False for partials
-                if recognizer.AcceptWaveform(data):
-                    result = json.loads(recognizer.Result())
-                    text = result.get("text", "").strip()
+    print("[STT-Hybrid] Listening for wake words 'hey deskmate', 'hello', or 'hi' using Vosk… (Ctrl+C to stop)")
+    while True:
+        with sd.RawInputStream(
+            samplerate=SAMPLE_RATE,
+            blocksize=8000,
+            dtype="int16",
+            channels=1,
+            callback=_audio_callback,
+        ):
+            detected_wake_word = False
+            while True:
+                if not skip_wake_word_next:
+                    data = audio_queue.get()
                     
-                    if text and is_wake_word(text):
-                        detected_wake_word = True
+                    # Prevent robot's own TTS outputs from triggering the wake word
+                    if time.time() < cooldown_until:
+                        continue
+
+                    #accept waveform returns True when it has a final result (silence meaning user finished speaking), False for partials
+                    if recognizer.AcceptWaveform(data):
+                        result = json.loads(recognizer.Result())
+                        text = result.get("text", "").strip()
+                        
+                        if text and is_wake_word(text):
+                            detected_wake_word = True
+                            if on_partial:
+                                on_partial(f"[Vosk Match] {text}" + " " * 20)
+                            break
+                        elif text:
+                            # It was a final phrase, but not the wake word.
+                            if on_partial:
+                                on_partial(f"[Ignored] {text}" + " " * 20)
+                    else:
+                        partial = json.loads(recognizer.PartialResult())
+                        partial_text = partial.get("partial", "").strip()
+                        
                         if on_partial:
-                            on_partial(f"[Vosk Match] {text}" + " " * 20)
-                    elif text:
-                        # It was a final phrase, but not the wake word.
-                        if on_partial:
-                            on_partial(f"[Ignored] {text}" + " " * 20)
+                            if partial_text:
+                                on_partial(f"[Vosk Partial] {partial_text}" + " " * 20)
+                            else:
+                                on_partial("\r  (listening) [Waiting...]                    ")
                 else:
-                    partial = json.loads(recognizer.PartialResult())
-                    partial_text = partial.get("partial", "").strip()
-                    
-                    if on_partial:
-                        if partial_text:
-                            on_partial(f"[Vosk Partial] {partial_text}" + " " * 20)
-                        else:
-                            on_partial("\r  (listening) [Waiting...]                    ")
+                    break
+
+        if detected_wake_word or skip_wake_word_next:
+            # Flush the queue to discard old audio
+            while not audio_queue.empty():
+                audio_queue.get()
+
+            if detected_wake_word:
+                # Trigger beep (audible to user)
+                print("\a\n[STT-Hybrid] Wake word detected! Triggering TTS...")
+                sys.stdout.flush()
+                # Trigger TTS
+                speak("Hello, how can I assist you today?")
             else:
-                detected_wake_word = False
+                # We are in conversational bypass mode
+                print("\a\n[STT-Hybrid] Continuing conversation... listening directly.")
 
-            if detected_wake_word or skip_wake_word_next:
-                # Flush the queue to discard old audio
-                while not audio_queue.empty():
-                    audio_queue.get()
+            # Reset bypass flag
+            skip_wake_word_next = False
 
-                if detected_wake_word:
-                    # Trigger beep (audible to user)
-                    print("\a\n[STT-Hybrid] Wake word detected! Triggering TTS...")
-                    sys.stdout.flush()
-                    # Trigger TTS
-                    speak("Hello, how can I assist you today?")
-                else:
-                    # We are in conversational bypass mode
-                    print("\a\n[STT-Hybrid] Continuing conversation... listening directly.")
+            # Now switch to Google Web Speech API to get the command
+            print("[STT-Hybrid] Activating Google Web Speech API... Listening for actual command...")
+            with sr.Microphone() as source:
+                # Optional: google_recognizer.adjust_for_ambient_noise(source)
+                try:
+                    audio = google_recognizer.listen(source, timeout=5, phrase_time_limit=20)
+                    print("[STT-Hybrid] Processing with Google...")
+                    command_text = google_recognizer.recognize_google(audio)
+                    print(f"[STT-Hybrid] Google recognized: {command_text}")
+                    if on_result:
+                        res = on_result(command_text)
+                        if res is False:
+                            return
+                        elif res == "SKIP_WAKE_WORD":
+                            skip_wake_word_next = True
+                except sr.WaitTimeoutError:
+                    print("[STT-Hybrid] Timeout: No command heard after wake word.")
+                except sr.UnknownValueError:
+                    print("[STT-Hybrid] Google Speech Recognition could not understand audio.")
+                except sr.RequestError as e:
+                    print(f"[STT-Hybrid] Could not request results from Google Speech Recognition service; {e}")
+            
+            print("[STT-Hybrid] Resuming Vosk wake word listening...\n")
+            
+            # Small pause to allow physical speaker echo to dissipate
+            time.sleep(0.5)
 
-                # Reset bypass flag
-                skip_wake_word_next = False
-
-                # Now switch to Google Web Speech API to get the command
-                print("[STT-Hybrid] Activating Google Web Speech API... Listening for actual command...")
-                with sr.Microphone() as source:
-                    # Optional: google_recognizer.adjust_for_ambient_noise(source)
-                    try:
-                        audio = google_recognizer.listen(source, timeout=5, phrase_time_limit=15)
-                        print("[STT-Hybrid] Processing with Google...")
-                        command_text = google_recognizer.recognize_google(audio)
-                        print(f"[STT-Hybrid] Google recognized: {command_text}")
-                        if on_result:
-                            res = on_result(command_text)
-                            if res is False:
-                                break
-                            elif res == "SKIP_WAKE_WORD":
-                                skip_wake_word_next = True
-                    except sr.WaitTimeoutError:
-                        print("[STT-Hybrid] Timeout: No command heard after wake word.")
-                    except sr.UnknownValueError:
-                        print("[STT-Hybrid] Google Speech Recognition could not understand audio.")
-                    except sr.RequestError as e:
-                        print(f"[STT-Hybrid] Could not request results from Google Speech Recognition service; {e}")
-                
-                print("[STT-Hybrid] Resuming Vosk wake word listening...\n")
-                
-                # Small pause to allow physical speaker echo to dissipate
-                time.sleep(0.5)
-
-                # Reset the KaldiRecognizer to clear out the old partials before continuing
-                while not audio_queue.empty():
-                    audio_queue.get()
-                
-                # Set a 2 second cooldown window where we deliberately ignore Vosk 
-                # so that any lingering echoes from the TTS do not trigger another wake word
-                cooldown_until = time.time() + 2.0
+            # Reset the KaldiRecognizer to clear out the old partials before continuing
+            while not audio_queue.empty():
+                audio_queue.get()
+            
+            # Set a 2 second cooldown window where we deliberately ignore Vosk 
+            # so that any lingering echoes from the TTS do not trigger another wake word
+            cooldown_until = time.time() + 2.0
 
 
 if __name__ == "__main__":
