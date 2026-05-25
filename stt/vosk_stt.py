@@ -97,6 +97,7 @@ def listen(recognizer: KaldiRecognizer, on_partial=None, on_result=None):
 
     google_recognizer = sr.Recognizer()
     cooldown_until = 0
+    skip_wake_word_next = False
 
     print("[STT-Hybrid] Listening for wake word 'hey deskmate' using Vosk… (Ctrl+C to stop)")
     with sd.RawInputStream(
@@ -107,47 +108,56 @@ def listen(recognizer: KaldiRecognizer, on_partial=None, on_result=None):
         callback=_audio_callback,
     ):
         while True:
-            data = audio_queue.get()
-            
-            # Prevent robot's own TTS outputs from triggering the wake word
-            if time.time() < cooldown_until:
-                continue
-
-            detected_wake_word = False
-
-            if recognizer.AcceptWaveform(data):
-                result = json.loads(recognizer.Result())
-                text = result.get("text", "").strip()
+            if not skip_wake_word_next:
+                data = audio_queue.get()
                 
-                if text and is_wake_word(text):
-                    detected_wake_word = True
+                # Prevent robot's own TTS outputs from triggering the wake word
+                if time.time() < cooldown_until:
+                    continue
+
+                detected_wake_word = False
+
+                if recognizer.AcceptWaveform(data):
+                    result = json.loads(recognizer.Result())
+                    text = result.get("text", "").strip()
+                    
+                    if text and is_wake_word(text):
+                        detected_wake_word = True
+                        if on_partial:
+                            on_partial(f"[Vosk Match] {text}" + " " * 20)
+                    elif text:
+                        # It was a final phrase, but not the wake word.
+                        if on_partial:
+                            on_partial(f"[Ignored] {text}" + " " * 20)
+                else:
+                    partial = json.loads(recognizer.PartialResult())
+                    partial_text = partial.get("partial", "").strip()
+                    
                     if on_partial:
-                        on_partial(f"[Vosk Match] {text}" + " " * 20)
-                elif text:
-                    # It was a final phrase, but not the wake word.
-                    if on_partial:
-                        on_partial(f"[Ignored] {text}" + " " * 20)
+                        if partial_text:
+                            on_partial(f"[Vosk Partial] {partial_text}" + " " * 20)
+                        else:
+                            on_partial("\r  (listening) [Waiting...]                    ")
             else:
-                partial = json.loads(recognizer.PartialResult())
-                partial_text = partial.get("partial", "").strip()
-                
-                if on_partial:
-                    if partial_text:
-                        on_partial(f"[Vosk Partial] {partial_text}" + " " * 20)
-                    else:
-                        on_partial("[Waiting...]                    ")
-                        
-            if detected_wake_word:
+                detected_wake_word = False
+
+            if detected_wake_word or skip_wake_word_next:
                 # Flush the queue to discard old audio
                 while not audio_queue.empty():
                     audio_queue.get()
 
-                # Trigger beep (audible to user)
-                print("\a\n[STT-Hybrid] Wake word detected! Triggering TTS...")
-                sys.stdout.flush()
+                if detected_wake_word:
+                    # Trigger beep (audible to user)
+                    print("\a\n[STT-Hybrid] Wake word detected! Triggering TTS...")
+                    sys.stdout.flush()
+                    # Trigger TTS
+                    speak("Hello, how can I assist you today?")
+                else:
+                    # We are in conversational bypass mode
+                    print("\a\n[STT-Hybrid] Continuing conversation... listening directly.")
 
-                # Trigger TTS
-                speak("Hello, how can I assist you today?")
+                # Reset bypass flag
+                skip_wake_word_next = False
 
                 # Now switch to Google Web Speech API to get the command
                 print("[STT-Hybrid] Activating Google Web Speech API... Listening for actual command...")
@@ -159,8 +169,11 @@ def listen(recognizer: KaldiRecognizer, on_partial=None, on_result=None):
                         command_text = google_recognizer.recognize_google(audio)
                         print(f"[STT-Hybrid] Google recognized: {command_text}")
                         if on_result:
-                            if on_result(command_text) is False:
+                            res = on_result(command_text)
+                            if res is False:
                                 break
+                            elif res == "SKIP_WAKE_WORD":
+                                skip_wake_word_next = True
                     except sr.WaitTimeoutError:
                         print("[STT-Hybrid] Timeout: No command heard after wake word.")
                     except sr.UnknownValueError:

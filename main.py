@@ -189,7 +189,7 @@ def is_rag_query(text: str) -> bool:
     return has_rag_trigger or has_context_hint
 
 
-def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
+def process_text(text: str, intent_classifier, verbose: bool = True) -> tuple[str, str]:
     """
     Process recognized text through the full pipeline.
 
@@ -204,8 +204,8 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
 
     Returns
     -------
-    str
-        Action result message.
+    tuple[str, str]
+        (Action result message, Intent name)
     """
     from action.dispatcher import dispatch
     from tts.engine import speak
@@ -235,7 +235,7 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
         if verbose:
             print(f"Output: {chatbot_response}")
         speak(chatbot_response)
-        return chatbot_response
+        return chatbot_response, intent
 
     # Dispatch action
     action_result = dispatch(intent, entities=entities, text=text)
@@ -244,13 +244,13 @@ def process_text(text: str, intent_classifier, verbose: bool = True) -> str:
         if verbose:
             print(f"Output: {chatbot_response}")
         speak(chatbot_response)
-        return chatbot_response
+        return chatbot_response, "CHATBOT"
 
     if verbose:
         print(f"Output: {action_result}")
 
     speak(action_result)
-    return action_result
+    return action_result, intent
 
 
 def run_with_stt():
@@ -272,8 +272,10 @@ def run_with_stt():
 
     def on_result(text):
         sys.stdout.write("\r" + " " * 60 + "\r")  # clear partial line
-        process_text(text, clf)
-        return None  # keep listening
+        _result_text, result_intent = process_text(text, clf)
+        if result_intent == "CHATBOT":
+            return "SKIP_WAKE_WORD"
+        return None  # keep listening for wake word
 
     try:
         listen(recognizer, on_partial=on_partial, on_result=on_result)
