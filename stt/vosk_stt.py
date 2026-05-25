@@ -117,6 +117,7 @@ def listen(recognizer: KaldiRecognizer, on_partial=None, on_result=None):
 
                 detected_wake_word = False
 
+                #accept waveform returns True when it has a final result (silence meaning user finished speaking), False for partials
                 if recognizer.AcceptWaveform(data):
                     result = json.loads(recognizer.Result())
                     text = result.get("text", "").strip()
@@ -164,7 +165,7 @@ def listen(recognizer: KaldiRecognizer, on_partial=None, on_result=None):
                 with sr.Microphone() as source:
                     # Optional: google_recognizer.adjust_for_ambient_noise(source)
                     try:
-                        audio = google_recognizer.listen(source, timeout=5, phrase_time_limit=10)
+                        audio = google_recognizer.listen(source, timeout=5, phrase_time_limit=15)
                         print("[STT-Hybrid] Processing with Google...")
                         command_text = google_recognizer.recognize_google(audio)
                         print(f"[STT-Hybrid] Google recognized: {command_text}")
