@@ -30,8 +30,10 @@ An offline-STT voice-controlled robot that listens to spoken commands and handle
 
 ## How It Works
 
-### Stage 1: Speech-to-Text
-`stt/vosk_stt.py` uses Vosk and `sounddevice` to stream microphone audio into text. It runs fully offline.
+### Stage 1: Speech-to-Text (Hybrid Approach)
+`stt/vosk_stt.py` uses a hybrid approach to save Raspberry Pi resources:
+1. **Wake Word Detection (Vosk):** Runs fully offline, using almost no internet logic locally listening for the wake word ("Hey Deskmate").
+2. **Actual Command (Google Speech API):** Once the wake word is detected, it triggers TTS to say "Hello, how can I assist you today?", a beep is sounded, and the Google Web Speech API activates to listen accurately for your actual command.
 
 ### Stage 2: The Brain (Intent & Entity Extraction)
 `intent/llm_classifier.py` and `intent/intent_classifier.py` use the Hugging Face Inference API (via `requests`) to classify the text into one of these intents:

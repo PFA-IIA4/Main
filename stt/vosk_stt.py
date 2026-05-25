@@ -7,9 +7,11 @@ import json
 import os
 import queue
 import sys
+import re
 
 import sounddevice as sd
 from vosk import Model, KaldiRecognizer
+import speech_recognition as sr
 
 # Choose which model to use here:
 # "vosk-model-small-en-us-0.15" (fast, less accurate)
@@ -67,19 +69,35 @@ def create_recognizer(model_path: str = MODEL_PATH) -> KaldiRecognizer:
     return KaldiRecognizer(model, SAMPLE_RATE)
 
 
+def is_wake_word(text: str) -> bool:
+    """Flexible fuzzy matching for 'hey deskmate'."""
+    text = text.lower()
+    # Check for presence of hey and something sounding like deskmate
+    if re.search(r'\b(hey|hi|hello)\b.*\b(desk|disk|test|this)\s*(mate|make|made|man)*\b', text) or \
+       re.search(r'\b(hey|hi|hello)\b.*\b(deskmate|this mate|test mate)\b', text):
+        return True
+    return False
+
 def listen(recognizer: KaldiRecognizer, on_partial=None, on_result=None):
     """
-    Start continuous microphone streaming.
+    Hybrid continuous microphone streaming.
+    Uses Vosk for wake word 'hey deskmate' and Google Web Speech API for actual command.
 
     Parameters
     ----------
     recognizer : KaldiRecognizer
-        The Vosk recognizer instance.
+        The Vosk recognizer instance (used for Wake Word).
     on_partial : callable, optional
         Called with partial transcription text.
     on_result : callable, optional
         Called with final transcription text. Return False to stop listening.
     """
+    # Import speak here to avoid circular imports just in case
+    from tts.engine import speak
+
+    google_recognizer = sr.Recognizer()
+
+    print("[STT-Hybrid] Listening for wake word 'hey deskmate' using Vosk… (Ctrl+C to stop)")
     with sd.RawInputStream(
         samplerate=SAMPLE_RATE,
         blocksize=8000,
@@ -87,20 +105,62 @@ def listen(recognizer: KaldiRecognizer, on_partial=None, on_result=None):
         channels=1,
         callback=_audio_callback,
     ):
-        print("[STT] Listening… (Ctrl+C to stop)")
         while True:
             data = audio_queue.get()
+            detected_wake_word = False
+
             if recognizer.AcceptWaveform(data):
                 result = json.loads(recognizer.Result())
                 text = result.get("text", "").strip()
-                if text and on_result:
-                    if on_result(text) is False:
-                        break
+                if text and on_partial: 
+                    # Clear out line buffer if we print partials
+                    on_partial(f"[Vosk] {text}")
+                if text and is_wake_word(text):
+                    detected_wake_word = True
             else:
                 partial = json.loads(recognizer.PartialResult())
                 partial_text = partial.get("partial", "").strip()
                 if partial_text and on_partial:
-                    on_partial(partial_text)
+                    on_partial(f"[Vosk Partial] {partial_text}")
+                if partial_text and is_wake_word(partial_text):
+                    detected_wake_word = True
+
+            if detected_wake_word:
+                # Flush the queue to discard old audio
+                while not audio_queue.empty():
+                    audio_queue.get()
+
+                # Trigger beep (audible to user)
+                print("\a\n[STT-Hybrid] Wake word detected! Triggering TTS...")
+                sys.stdout.flush()
+
+                # Trigger TTS
+                speak("Hello, how can I assist you today?")
+
+                # Now switch to Google Web Speech API to get the command
+                print("[STT-Hybrid] Activating Google Web Speech API... Listening for actual command...")
+                with sr.Microphone() as source:
+                    # Optional: google_recognizer.adjust_for_ambient_noise(source)
+                    try:
+                        audio = google_recognizer.listen(source, timeout=5, phrase_time_limit=10)
+                        print("[STT-Hybrid] Processing with Google...")
+                        command_text = google_recognizer.recognize_google(audio)
+                        print(f"[STT-Hybrid] Google recognized: {command_text}")
+                        if on_result:
+                            if on_result(command_text) is False:
+                                break
+                    except sr.WaitTimeoutError:
+                        print("[STT-Hybrid] Timeout: No command heard after wake word.")
+                    except sr.UnknownValueError:
+                        print("[STT-Hybrid] Google Speech Recognition could not understand audio.")
+                    except sr.RequestError as e:
+                        print(f"[STT-Hybrid] Could not request results from Google Speech Recognition service; {e}")
+                
+                print("[STT-Hybrid] Resuming Vosk wake word listening...\n")
+                
+                # Reset the KaldiRecognizer to clear out the old partials before continuing
+                while not audio_queue.empty():
+                    audio_queue.get()
 
 
 if __name__ == "__main__":

@@ -4,3 +4,4 @@ sounddevice
 vosk
 edge-tts
 pygame
+SpeechRecognition

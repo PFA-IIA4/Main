@@ -16,7 +16,7 @@ This unifies Intent Classification, Entity Extraction, and the Chatbot into a si
 
 ### Pipeline
 
-1. **Speech-to-text** with local Vosk.
+1. **Speech-to-text** starts with local Vosk (Wake word "Hey Deskmate") followed by Google Web Speech API for high accuracy command recording.
 2. **Unified Brain** via `requests` to Hugging Face (`Qwen2.5-7B-Instruct` or similar) doing three jobs at once:
    - Intent Classification
    - Parameter extraction (formerly Regex entity extraction)
