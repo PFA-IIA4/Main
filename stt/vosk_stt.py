@@ -8,6 +8,7 @@ import os
 import queue
 import sys
 import re
+import time
 
 import sounddevice as sd
 from vosk import Model, KaldiRecognizer
@@ -72,8 +73,8 @@ def is_wake_word(text: str) -> bool:
     """Flexible fuzzy matching for 'hey deskmate'."""
     text = text.lower()
     # Check for presence of hey and something sounding like deskmate
-    if re.search(r'\b(hey|hi|hello)\b.*\b(desk|disk|test|this)\s*(mate|make|made|man)*\b', text) or \
-       re.search(r'\b(hey|hi|hello)\b.*\b(deskmate|this mate|test mate)\b', text):
+    if re.search(r'\b(hey|hi|hello|ok|okay)\b.*\b(desk|disk|test|this|just|guess)\s*(mate|make|made|man|may|me)*\b', text) or \
+       re.search(r'\b(hey|hi|hello|ok|okay)\b.*\b(deskmate|this mate|test mate|just made|just make)\b', text):
         return True
     return False
 
@@ -95,6 +96,7 @@ def listen(recognizer: KaldiRecognizer, on_partial=None, on_result=None):
     from tts.engine import speak
 
     google_recognizer = sr.Recognizer()
+    cooldown_until = 0
 
     print("[STT-Hybrid] Listening for wake word 'hey deskmate' using Vosk… (Ctrl+C to stop)")
     with sd.RawInputStream(
@@ -106,24 +108,35 @@ def listen(recognizer: KaldiRecognizer, on_partial=None, on_result=None):
     ):
         while True:
             data = audio_queue.get()
+            
+            # Prevent robot's own TTS outputs from triggering the wake word
+            if time.time() < cooldown_until:
+                continue
+
             detected_wake_word = False
 
             if recognizer.AcceptWaveform(data):
                 result = json.loads(recognizer.Result())
                 text = result.get("text", "").strip()
-                if text and on_partial: 
-                    # Clear out line buffer if we print partials
-                    on_partial(f"[Vosk] {text}")
+                
                 if text and is_wake_word(text):
                     detected_wake_word = True
+                    if on_partial:
+                        on_partial(f"[Vosk Match] {text}" + " " * 20)
+                elif text:
+                    # It was a final phrase, but not the wake word.
+                    if on_partial:
+                        on_partial(f"[Ignored] {text}" + " " * 20)
             else:
                 partial = json.loads(recognizer.PartialResult())
                 partial_text = partial.get("partial", "").strip()
-                if partial_text and on_partial:
-                    on_partial(f"[Vosk Partial] {partial_text}")
-                if partial_text and is_wake_word(partial_text):
-                    detected_wake_word = True
-
+                
+                if on_partial:
+                    if partial_text:
+                        on_partial(f"[Vosk Partial] {partial_text}" + " " * 20)
+                    else:
+                        on_partial("[Waiting...]                    ")
+                        
             if detected_wake_word:
                 # Flush the queue to discard old audio
                 while not audio_queue.empty():
@@ -157,9 +170,16 @@ def listen(recognizer: KaldiRecognizer, on_partial=None, on_result=None):
                 
                 print("[STT-Hybrid] Resuming Vosk wake word listening...\n")
                 
+                # Small pause to allow physical speaker echo to dissipate
+                time.sleep(0.5)
+
                 # Reset the KaldiRecognizer to clear out the old partials before continuing
                 while not audio_queue.empty():
                     audio_queue.get()
+                
+                # Set a 2 second cooldown window where we deliberately ignore Vosk 
+                # so that any lingering echoes from the TTS do not trigger another wake word
+                cooldown_until = time.time() + 2.0
 
 
 if __name__ == "__main__":
